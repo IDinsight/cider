@@ -233,9 +233,10 @@ def cdr_bandicoot_format(cdr: SparkDataFrame, antennas: SparkDataFrame, cfg: Box
 
     Returns: spark df in bandicoot format
     """
-
-    cols = list(cfg.keys())
-
+    cols = [
+        'txn_type', 'caller_id', 'recipient_id', 'day', 'amount', 'sender_balance_before',
+        'sender_balance_after', 'recipient_balance_before', 'recipient_balance_after'
+    ]
     outgoing = cdr.select(cols)\
         .withColumnRenamed('txn_type', 'interaction')\
         .withColumnRenamed('caller_id', 'name')\
