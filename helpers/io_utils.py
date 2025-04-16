@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 import re
 import fiona
-
+import datetime
 import geopandas as gpd  # type: ignore[import]
 from box import Box
 from geopandas import GeoDataFrame
@@ -108,24 +108,19 @@ class IOUtils:
                 df = self.spark.read.options(**self.cfg.read_options).schema(schema).parquet(str(fpath))
             elif Path(fpath).is_dir():
                 if parquet_files:
+                    parquet_paths = [str(path.resolve()) for path in parquet_files]
                     df = (self.spark.read
                         .options(**self.cfg.read_options)
                         .schema(schema)
-                        .parquet(*parquet_files))
-                if Path(fpath).is_dir():
-                    parquet_files = list(Path(fpath).rglob('*.parquet'))
-                    csv_files = list(Path(fpath).rglob('*.csv'))
-                    if parquet_files:
-                        parquet_paths = [str(path) for path in parquet_files]
-                        df = (self.spark.read
-                            .options(**self.cfg.read_options)
-                            .schema(schema)
-                            .parquet(*parquet_paths))
-                    elif csv_files:
-                        csv_paths = [str(path) for path in csv_files]
-                        df = self.spark.read.csv(*csv_paths, header=True)
-                    else:
-                        raise ValueError(f"No parquet or csv files found under directory: {fpath}")
+                        .parquet(*parquet_paths))
+                elif csv_files:
+                    csv_path = str(Path(csv_files[0]).parent.resolve()) + "/*.csv"
+                    df = (self.spark.read
+                        .options(**self.cfg.read_options)
+                        .schema(schema)
+                        .csv(csv_path))
+                else:
+                    raise ValueError(f"No parquet or csv files found under directory: {fpath}")
         elif df is not None:
             if self.cfg.verbose >= 2:
                 print(f"loading from provided df...")
@@ -270,36 +265,36 @@ class IOUtils:
 
         Returns: spark df with antenna data
         """
-        if self.cfg.verbose >= 1:
-            print(f"loading antennas...")
-        if fpath is not None and Path(fpath).is_dir():
-            # Get all CSV and parquet files in directory
-            csv_files = list(Path(fpath).glob('**/*.csv'))
-            parquet_files = list(Path(fpath).glob('**/*.parquet'))
-            # Load and union all files
+        parquet_files = list(Path(fpath).rglob('*.parquet'))
+        csv_files = list(Path(fpath).rglob('*.csv'))
+        fpath = Path(fpath)
+        if fpath.suffix == '.csv':
+            antennas = self.spark.read.csv(str(fpath), header=True)
+        elif fpath.suffix == '.parquet':
+            antennas = self.load_dataset('antennas', fpath=fpath)
+        elif Path(fpath).is_dir():
             all_antennas = []
-            for file_path in csv_files + parquet_files:
-                antenna_df = self.load_dataset('antennas', fpath=file_path, provided_df=None)
-                all_antennas.append(antenna_df)
-            if not all_antennas:
-                raise ValueError(f"No CSV or parquet files found in directory: {fpath}")
-            # Union all dataframes
+            if parquet_files:
+                parquet_paths = [path.resolve() for path in parquet_files]
+                for parquet_path in parquet_paths:
+                    antenna_df = self.load_dataset('antennas', fpath=parquet_path, provided_df=None)
+                    all_antennas.append(antenna_df)
+            elif csv_files:
+                csv_paths = [path.resolve() for path in csv_files]
+                for csv_path in csv_paths:
+                    antenna_df = self.load_dataset('antennas', fpath=csv_path, provided_df=None)
+                    all_antennas.append(antenna_df)
+            else:
+                raise ValueError(f"No parquet or csv files found under directory: {fpath}")
             antennas = all_antennas[0]
             for df in all_antennas[1:]:
                 antennas = antennas.unionAll(df)
         else:
-            # Try reading as parquet first, then CSV if that fails
-            if fpath.suffix == '.parquet':
-                antennas = self.spark.read.parquet(str(fpath))
-            elif fpath.suffix == '.csv':
-                antennas = self.spark.read.csv(str(fpath), header=True)
-            else:
-                raise ValueError(f"Could not read file {fpath} as either parquet or CSV")
-
-            # Standardize column names and check required columns
-            if 'antennas' in self.cfg.col_names:
-                antennas = self.standardize_col_names(antennas, self.cfg.col_names['antennas'])
-            self.check_cols(antennas, 'antennas')
+            raise ValueError(f"No parquet or csv files found under directory: {fpath}")
+        # Standardize column names and check required columns
+        if 'antennas' in self.cfg.col_names:
+            antennas = self.standardize_col_names(antennas, self.cfg.col_names['antennas'])
+        self.check_cols(antennas, 'antennas')
         # Cast coordinates to float type
         antennas = antennas.withColumn('latitude', col('latitude').cast('float')) \
                           .withColumn('longitude', col('longitude').cast('float'))        
@@ -320,8 +315,6 @@ class IOUtils:
 
         Returns: spark df
         """
-        if self.cfg.verbose >= 1:
-            print(f"loading recharges...")
         recharges = self.load_dataset('recharges', fpath=fpath, provided_df=df)
         recharges = self.clean_timestamp_and_add_day_column(recharges, 'timestamp')
         recharges = recharges.withColumn('amount', col('amount').cast('float'))
@@ -337,8 +330,6 @@ class IOUtils:
         Load mobile data dataset
 
         """
-        if self.cfg.verbose >= 1:
-            print(f"loading mobiledata...")
         mobiledata = self.load_dataset('mobiledata', fpath=fpath, provided_df=df)
         mobiledata = self.clean_timestamp_and_add_day_column(mobiledata, 'timestamp')
         mobiledata = mobiledata.withColumn('volume', col('volume').cast('float'))
@@ -354,8 +345,6 @@ class IOUtils:
         """
         Load mobile money dataset
         """
-        if self.cfg.verbose >= 1:
-            print(f"loading mobilemoney...")
         mobilemoney = self.load_dataset('mobilemoney', fpath=fpath, provided_df=df)
         mobilemoney = self.clean_timestamp_and_add_day_column(mobilemoney, 'timestamp')
         mobilemoney = mobilemoney.withColumn('amount', col('amount').cast('float'))
@@ -374,8 +363,6 @@ class IOUtils:
 
         Returns: GeoDataFrame
         """
-        if self.cfg.verbose >= 1:
-            print(f"loading shapefile...")
         fpath_str = str(fpath)
         try:
             # For zip files, we need to specify the layer
@@ -404,27 +391,61 @@ class IOUtils:
         df: SparkDataFrame,
         existing_timestamp_column_name: str,
     ):
-        if self.cfg.verbose >= 1:
-            print(f"cleaning timestamp and adding day column...")
-            if self.cfg.verbose >= 2:
-                print(f"Unixtime divisor: {self.cfg.unixtime_divisor}")
-        # Check if timestamp is already in datetime format
-        sample_timestamp = df.select(existing_timestamp_column_name).first()[0]
+        """
+        Clean timestamp column and add a day column.
         
-        if isinstance(sample_timestamp, str):
-            # If timestamp is a string, directly convert to timestamp
-            return (df
-                    .withColumn('timestamp', 
-                        to_timestamp(col(existing_timestamp_column_name)))
-                    .withColumn('day', 
-                        date_trunc('day', col('timestamp'))))
+        Args:
+            df: Spark DataFrame
+            existing_timestamp_column_name: Name of the timestamp column
+            
+        Returns:
+            DataFrame with cleaned timestamp and day column
+        """
+        # Get the data type of the timestamp column
+        timestamp_type = df.schema[existing_timestamp_column_name].dataType
+        
+        # Check if it's already a timestamp type
+        if isinstance(timestamp_type, TimestampType):
+            # Already a timestamp, just add the day column
+            return df.withColumn('timestamp', col(existing_timestamp_column_name)) \
+                    .withColumn('day', date_trunc('day', col('timestamp')))
+        
+        # For numeric types (BIGINT, INT, etc.), convert from unix time
+        elif isinstance(timestamp_type, (LongType, IntegerType)):
+            divisor = getattr(self.cfg, 'unixtime_divisor', 1)
+            timestamp_col = to_timestamp(from_unixtime(col(existing_timestamp_column_name) / divisor))
+            return df.withColumn('timestamp', timestamp_col) \
+                    .withColumn('day', date_trunc('day', col('timestamp')))
+        
+        # For string types, use to_timestamp directly
+        elif isinstance(timestamp_type, StringType):
+            return df.withColumn('timestamp', to_timestamp(col(existing_timestamp_column_name))) \
+                    .withColumn('day', date_trunc('day', col('timestamp')))
+        
+        # For other types, try a sample-based approach as fallback
         else:
-            # If timestamp is unix timestamp, convert from unix time
-            return (df
-                    .withColumn('timestamp', 
-                        to_timestamp(from_unixtime(col(existing_timestamp_column_name)/self.cfg.unixtime_divisor)))
-                    .withColumn('day', 
-                        date_trunc('day', col('timestamp'))))
+            sample_row = df.select(existing_timestamp_column_name).first()
+            if sample_row is None:
+                # Empty DataFrame
+                return df.withColumn('timestamp', lit(None).cast(TimestampType())) \
+                        .withColumn('day', lit(None).cast(TimestampType()))
+            
+            sample_timestamp = sample_row[0]
+            
+            if isinstance(sample_timestamp, (int, float)):
+                # Numeric timestamp (unix timestamp)
+                divisor = getattr(self.cfg, 'unixtime_divisor', 1)
+                timestamp_col = to_timestamp(from_unixtime(col(existing_timestamp_column_name) / divisor))
+                return df.withColumn('timestamp', timestamp_col) \
+                        .withColumn('day', date_trunc('day', col('timestamp')))
+            elif isinstance(sample_timestamp, str):
+                # String timestamp
+                return df.withColumn('timestamp', to_timestamp(col(existing_timestamp_column_name))) \
+                        .withColumn('day', date_trunc('day', col('timestamp')))
+            else:
+                # Unknown type, try to cast to timestamp
+                return df.withColumn('timestamp', col(existing_timestamp_column_name).cast(TimestampType())) \
+                        .withColumn('day', date_trunc('day', col('timestamp')))
 
 
     def load_phone_numbers_to_featurize(

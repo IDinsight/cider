@@ -45,7 +45,8 @@ def all_spark(
     cfg: Box,
     phone_numbers_to_featurize: Optional[SparkDataFrame],
     spark_context: Optional[spark.SparkContext],
-    output_path: Optional[str]
+    output_path: Optional[str],
+    verbose: Optional[int] = 1
 ) -> List[SparkDataFrame]:
     """
     Compute cdr features starting from raw interaction data
@@ -63,7 +64,7 @@ def all_spark(
         # Repartition to a reasonable size before saving
         num_partitions = max(1, feature_df.rdd.getNumPartitions() // 4)
         feature_df.repartition(num_partitions).write.mode('errorifexists').parquet(f"{output_path}/{feature_name}")
-        if cfg.verbose >= 2:
+        if verbose >= 2:
             print(f"Saved {feature_name} to {output_path}")
         # Force cleanup
         feature_df.unpersist(blocking=True)
@@ -112,7 +113,7 @@ def all_spark(
     unfiltered_count = df.count()
     df = filter_by_phone_numbers_to_featurize(phone_numbers_to_featurize, df, 'caller_id')
     filtered_count = df.count()
-    if cfg.verbose >= 1:
+    if verbose >= 1:
         print(f"Number of rows before filtering by phone numbers: {unfiltered_count:,}")
         print(f"Number of rows after filtering by phone numbers: {filtered_count:,}")
     df = tag_conversations(df)
@@ -155,7 +156,7 @@ def all_spark(
             print(f"Checking for checkpoint: {checkpoint_dir / feature_name}")
             if (checkpoint_dir / feature_name).exists():
                 completed_features.append(feature_name)
-                if cfg.verbose >= 1:
+                if verbose >= 1:
                     print(f"Found most recent checkpoint: {feature_name}")
                 last_completed_idx = all_features_functions.index(feature_function)
                 break
@@ -164,18 +165,18 @@ def all_spark(
             spark_session = SparkSession.builder.getOrCreate()
             for completed_feature in all_features_functions[:last_completed_idx + 1]:
                 feature_name = completed_feature.__name__
-                if cfg.verbose >= 1:
+                if verbose >= 1:
                     print(f"Loading checkpoint for {feature_name}")
                 feature = spark_session.read.parquet(f"{checkpoint_path}/{feature_name}")
                 features.append(feature)
             remaining_features = all_features_functions[last_completed_idx + 1:]
             
         else:
-            if cfg.verbose >= 1:
+            if verbose >= 1:
                 print("No checkpoints found, will recompute all features")
             remaining_features = all_features_functions
     else:
-        if cfg.verbose >= 1:
+        if verbose >= 1:
             print("No checkpoints found, will recompute all features")
         remaining_features = all_features_functions
 

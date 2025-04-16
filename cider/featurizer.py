@@ -100,12 +100,8 @@ class Featurizer:
         }
         # Load data into datastore, initialize bandicoot attribute
         self.ds.load_data(data_type_map=data_type_map, all_required=False)
-        print("Featurizer initialized")
-        print(f"Number of rows: {self.ds.cdr.count()}")
-        print(f"Number of columns: {len(self.ds.cdr.columns)}")
-        shape = (self.ds.cdr.count(), len(self.ds.cdr.columns))
-        print(f"Shape: {shape}")
-        print("\n")
+        if self.cfg.verbose >= 1:
+            print("Featurizer initialized")
         self.ds.cdr_bandicoot = None
         self.phone_numbers_to_featurize = getattr(self.ds, 'phone_numbers_to_featurize', None)
         if 'params' in self.cfg and 'feature_output_format' in self.cfg.params:
@@ -119,7 +115,6 @@ class Featurizer:
                 raise ValueError(f'Unknown feature output format {output_format_string}.')
         else:
             self.output_format = _OutputFormat.CSV
-        print(self.ds.cdr.select('timestamp').show(5, truncate=False))
 
 
 
@@ -139,22 +134,14 @@ class Featurizer:
                          ('Mobile Data', self.ds.mobiledata),
                          ('Mobile Money', self.ds.mobilemoney)]:
             if df is not None:
-                print(name)
-                # try:
-                print(f"Number of rows: {df.count()}")
-                print(f"Number of columns: {len(df.columns)}")
-                shape = (df.count(), len(df.columns))
-                print(f"Shape: {shape}")
-                print(df.columns)
-                print(df.select('timestamp').head(5))
-                print("\n")
-                # except:
-                #     print(f"Error for {name}")
+                if self.cfg.verbose >= 1:
+                    print(f"Calculating diagnostics for {name}...")
                 statistics[name] = {}
-                lastday = pd.to_datetime(df.agg({'timestamp': 'max'}).collect()[0][0])
-                firstday = pd.to_datetime(df.agg({'timestamp': 'min'}).collect()[0][0])
-                statistics[name]['Days'] = (lastday - firstday).days + 1
-
+                # Check if timestamp column exists and has data
+                if df.select('timestamp').first() is not None:
+                    lastday = pd.to_datetime(df.agg({'timestamp': 'max'}).collect()[0][0])
+                    firstday = pd.to_datetime(df.agg({'timestamp': 'min'}).collect()[0][0])
+                    statistics[name]['Days'] = (lastday - firstday).days + 1
 
                 # Number of transactions
                 statistics[name]['Transactions'] = df.count()
@@ -309,7 +296,7 @@ class Featurizer:
             unmatched = flatten_lst(unmatched)
             pool.close()
             if len(unmatched) > 0:
-                if self.cfg.verbose >= 1:
+                if self.ds.cfg.verbose >= 1:
                     print('Warning: lost %i subscribers in file shuffling' % len(unmatched))
 
             # Calculate bandicoot features
@@ -354,7 +341,7 @@ class Featurizer:
         # Check that CDR is present to calculate international features
         if self.ds.cdr is None:
             raise ValueError('CDR file must be loaded to calculate CDR features.')
-        if self.cfg.verbose >= 1:
+        if self.ds.cfg.verbose >= 1:
             print('Calculating CDR features...')
 
         cdr_features = all_spark(
@@ -363,7 +350,8 @@ class Featurizer:
             cfg=self.cfg.params.cdr,
             phone_numbers_to_featurize=self.phone_numbers_to_featurize,
             spark_context=self.spark.sparkContext,
-            output_path=self.outputs_path
+            output_path=self.outputs_path,
+            verbose=self.ds.cfg.verbose
         )
         cdr_features_df = long_join_pyspark(cdr_features, on='caller_id', how='outer')
         cdr_features_df = cdr_features_df.withColumnRenamed('caller_id', 'name')
@@ -378,7 +366,7 @@ class Featurizer:
         # Check that CDR is present to calculate international features
         if self.ds.cdr is None:
             raise ValueError('CDR file must be loaded to calculate international features.')
-        if self.cfg.verbose >= 1:
+        if self.ds.cfg.verbose >= 1:
             print('Calculating international features...')
 
         # Write international transactions to file
@@ -426,7 +414,7 @@ class Featurizer:
             raise ValueError('CDR file must be loaded to calculate spatial features.')
         if self.ds.antennas is None:
             raise ValueError('Antenna file must be loaded to calculate spatial features.')
-        if self.cfg.verbose >= 1:
+        if self.ds.cfg.verbose >= 1:
             print('Calculating spatial features...')
 
         # If CDR is not available in bandicoot format, calculate it
@@ -443,7 +431,7 @@ class Featurizer:
             raise ValueError('No shapefiles provided. Cannot calculate location features.')
             
         for shapefile_name in self.ds.shapefiles.keys():
-            if self.cfg.verbose >= 1:
+            if self.ds.cfg.verbose >= 1:
                 print(f"\nProcessing {shapefile_name}")
             shapefile = self.ds.shapefiles[shapefile_name]
             
@@ -455,7 +443,7 @@ class Featurizer:
             
             shapefile = shapefile.set_crs("EPSG:4326", allow_override=True)
 
-            if self.cfg.verbose >= 2:
+            if self.ds.cfg.verbose >= 2:
                 print(f"Shapefile CRS: {shapefile.crs}")
                 print(f"Antennas CRS: {antennas.crs}")
                 print(f"Number of antennas: {len(antennas)}")
@@ -464,7 +452,7 @@ class Featurizer:
             
             # Try spatial join with different operation
             joined = gpd.sjoin(antennas, shapefile, op='intersects', how='left')
-            if self.cfg.verbose >= 2:
+            if self.ds.cfg.verbose >= 2:
                 print(f"\nJoin results:")
                 print(f"Total antennas after join: {len(joined)}")
                 print(f"Antennas matched to districts: {len(joined[joined['region'].notna()])}")
@@ -475,12 +463,12 @@ class Featurizer:
             antennas[shapefile_name] = antennas[shapefile_name].fillna('Unknown')
             
             # Debug print after final join
-            if self.cfg.verbose >= 2:
+            if self.ds.cfg.verbose >= 2:
                 print(f"\nFinal district assignments:")
                 print(antennas[shapefile_name].value_counts().head())
             
         # Convert back to Spark DataFrame, dropping geometry
-        if self.cfg.verbose >= 2:
+        if self.ds.cfg.verbose >= 2:
             print("\nBefore converting to Spark DataFrame:")
             print("Columns in antennas:", antennas.columns.tolist())
             print("Sample of district assignments:")
@@ -490,21 +478,21 @@ class Featurizer:
             
         antennas_spark = self.spark.createDataFrame(antennas.drop(['geometry'], axis=1).fillna('Unknown'))
         
-        if self.cfg.verbose >= 2:
+        if self.ds.cfg.verbose >= 2:
             print("\nAfter converting to Spark DataFrame:")
             print("Columns in antennas_spark:", antennas_spark.columns)
-            antennas_spark.select('antenna_id', *self.ds.shapefiles.keys()).show(5)
+            antennas_spark.select('antenna_id', *self.ds.shapefiles.keys()).show()
 
         cdr_bandicoot_filtered = filter_by_phone_numbers_to_featurize(
             self.phone_numbers_to_featurize, self.ds.cdr_bandicoot, 'name'
         )
 
         # Before the join, split the comma-separated antenna_ids
-        if self.cfg.verbose >= 1:
+        if self.ds.cfg.verbose >= 1:
             print("\nSplitting comma-separated antenna_ids...")
         
         # Debug print to see available columns
-        if self.cfg.verbose >= 2:
+        if self.ds.cfg.verbose >= 2:
             print("Available columns in CDR data:")
             cdr_bandicoot_filtered.printSchema()
         
@@ -560,7 +548,7 @@ class Featurizer:
                     dtype={'name': 'str'}
                 )
                 
-                if self.cfg.verbose >= 2:
+                if self.ds.cfg.verbose >= 2:
                     print(f"\nProcessing {shapefile_name}")
                     print("Sample of raw counts:")
                     print(count_by_region.head())
@@ -614,7 +602,7 @@ class Featurizer:
         # Check that mobile internet data is loaded
         if self.ds.mobiledata is None:
             raise ValueError('Mobile data file must be loaded to calculate mobile data features.')
-        if self.cfg.verbose >= 1:
+        if self.ds.cfg.verbose >= 1:
             print('Calculating mobile data features...')
         
         # Aggregate mobiledata use by day, to control for different definitions of "one transaction."
@@ -650,7 +638,7 @@ class Featurizer:
         # Check that mobile money is loaded
         if self.ds.mobilemoney is None:
             raise ValueError('Mobile money file must be loaded to calculate mobile money features.')
-        if self.cfg.verbose >= 1:
+        if self.ds.cfg.verbose >= 1:
             print('Calculating mobile money features...')
                 
         # create dummy columns for missing field (resulting features will all take value N/A, so be
@@ -743,7 +731,7 @@ class Featurizer:
 
         if self.ds.recharges is None:
             raise ValueError('Recharges file must be loaded to calculate recharges features.')
-        if self.cfg.verbose >= 1:
+        if self.ds.cfg.verbose >= 1:
             print('Calculating recharges features...')
 
         feats = self.ds.recharges.groupby('caller_id').agg(sum('amount').alias('sum'),

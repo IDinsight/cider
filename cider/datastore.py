@@ -167,15 +167,13 @@ class DataStore(InitializerInterface):
             if self.cfg.verbose >= 1:
                 print('Loading CDR...')
             cdr = self.io_utils.load_cdr(fpath, df=dataframe, cfg=self.cfg)
-            if self.cfg.verbose >= 2:
-                print("Self.cdr timestamp:")
-                print(self.cdr.select('timestamp').show(5, truncate=False))
-                shape = (self.cdr.count(), len(self.cdr.columns))
-                print(f"Shape: {shape}")
-                print(self.cdr.show().take(5))
-                print("Read in cdr")
-                print("\n")
             self.cdr = cdr
+            if self.cfg.verbose >= 2:
+                shape = (cdr.count(), len(cdr.columns))
+                print(f"Shape: {shape}")
+                print("Read in cdr:")
+                self.cdr.show()
+                print("\n")
 
     def _load_antennas(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -190,12 +188,10 @@ class DataStore(InitializerInterface):
                 print('Loading antennas...')
             self.antennas = self.io_utils.load_antennas(fpath, df=dataframe)
             if self.cfg.verbose >= 2:
-                print("Self.antennas timestamp:")
-                print(self.antennas.select('timestamp').show(5, truncate=False))
                 shape = (self.antennas.count(), len(self.antennas.columns))
                 print(f"Shape: {shape}")
-                print(self.antennas.show().take(5))
-                print("Read in antennas")
+                print("Read in antennas:")
+                self.antennas.show()
                 print("\n")
 
     def _load_recharges(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
@@ -211,12 +207,10 @@ class DataStore(InitializerInterface):
                 print('Loading recharges...')
             self.recharges = self.io_utils.load_recharges(fpath, df=dataframe)
             if self.cfg.verbose >= 2:
-                print("Self.recharges timestamp:")
-                print(self.recharges.select('timestamp').show(5, truncate=False))
                 shape = (self.recharges.count(), len(self.recharges.columns))
                 print(f"Shape: {shape}")
-                print(self.recharges.show().take(5))
-                print("Read in recharges")
+                print("Read in recharges:")
+                self.recharges.show()
                 print("\n")
 
     def _load_mobiledata(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
@@ -232,12 +226,10 @@ class DataStore(InitializerInterface):
                 print('Loading mobile data...')
             self.mobiledata = self.io_utils.load_mobiledata(fpath, df=dataframe)
             if self.cfg.verbose >= 2:
-                print("Self.mobiledata timestamp:")
-                print(self.mobiledata.select('timestamp').show(5, truncate=False))
                 shape = (self.mobiledata.count(), len(self.mobiledata.columns))
                 print(f"Shape: {shape}")
-                print(self.mobiledata.show().take(5))
-                print("Read in mobiledata")
+                print("Read in mobiledata:")
+                self.mobiledata.show()
                 print("\n")
     def _load_mobilemoney(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -249,12 +241,10 @@ class DataStore(InitializerInterface):
                 print('Loading mobile money...')
             self.mobilemoney = self.io_utils.load_mobilemoney(fpath, df=dataframe)
             if self.cfg.verbose >= 2:
-                print("Self.mobilemoney timestamp:")
-                print(self.mobilemoney.select('timestamp').show(5, truncate=False))
                 shape = (self.mobilemoney.count(), len(self.mobilemoney.columns))
                 print(f"Shape: {shape}")
-                print(self.mobilemoney.show().take(5))
-                print("Read in mobilemoney")
+                print("Read in mobilemoney:")
+                self.mobilemoney.show()
                 print("\n")
 
     def _load_shapefiles(self) -> None:
@@ -266,17 +256,15 @@ class DataStore(InitializerInterface):
         if shapefiles is not None:
             for shapefile_name, shapefile_fpath in shapefiles.items():
                 if self.cfg.verbose >= 1:
-                    print(f"Loading shapefile: {shapefile_name}")
+                    print(f"Loading shapefile... {shapefile_name}")
                 self.shapefiles[shapefile_name] = self.io_utils.load_shapefile(shapefile_fpath)
                 if self.cfg.verbose >= 2:
-                    print(self.shapefiles[shapefile_name].head())
                     shape = (self.shapefiles[shapefile_name].count(), len(self.shapefiles[shapefile_name].columns))
                     print(f"Shape: {shape}")
+                    print(f"Read in shapefile: {shapefile_name}")
+                    print(self.shapefiles[shapefile_name].head())
                     print(f"Projection: {self.shapefiles[shapefile_name].crs}")
                     print("\n")
-            if self.cfg.verbose >= 1:
-                print("Read in shapefiles")
-                print("\n")
 
     def _load_home_ground_truth(self) -> None:
         """
@@ -290,9 +278,8 @@ class DataStore(InitializerInterface):
             print(self.home_ground_truth.head())
             shape = (self.home_ground_truth.count(), len(self.home_ground_truth.columns))
             print(f"Shape: {shape}")
-            print("\n")
-        if self.cfg.verbose >= 1:
-            print("Read in home ground truth")
+            print(f"Read in home ground truth:")
+            self.home_ground_truth.show()
             print("\n")
 
     def _load_poverty_scores(self) -> None:
@@ -307,12 +294,10 @@ class DataStore(InitializerInterface):
         else:
             self.poverty_scores = pd.DataFrame()
         if self.cfg.verbose >= 2:
-            print(self.poverty_scores.head())
             shape = (self.poverty_scores.count(), len(self.poverty_scores.columns))
             print(f"Shape: {shape}")
-            print("\n")
-        if self.cfg.verbose >= 1:
-            print("Read in poverty scores")
+            print(f"Read in poverty scores:")
+            self.poverty_scores.show()
             print("\n")
 
     def _load_features(self) -> None:
@@ -328,17 +313,15 @@ class DataStore(InitializerInterface):
             if 'features_to_use' in self.cfg.params:
                 self.features = self.features.select(self.cfg.params.features_to_use)
             if self.cfg.verbose >= 2:
-                print(self.features.head())
                 shape = (self.features.count(), len(self.features.columns))
                 print(f"Shape: {shape}")
+                print(f"Read in features:")
+                self.features.show()
                 print("\n")
         else:
             if self.cfg.verbose >= 1:
                 print("Features file not found")
-                
-        if self.cfg.verbose >= 1:
-            print("Read in features")
-            print("\n")
+
 
     def _load_labels(self) -> None:
         """
@@ -350,13 +333,11 @@ class DataStore(InitializerInterface):
         if labels_fpath is not None:
             self.labels = self.io_utils.load_labels(labels_fpath)
             if self.cfg.verbose >= 2:
-                print(self.labels.head())
-                print(f"Shape: {self.labels.shape}")
-                print()
+                shape = (self.labels.count(), len(self.labels.columns))
+                print(f"Shape: {shape}")
+                print(f"Read in labels:")
+                self.labels.show()
                 print("\n")
-        if self.cfg.verbose >= 1:
-            print("Read in labels")
-            print("\n")
 
     def _load_targeting(self) -> None:
         """
@@ -430,10 +411,17 @@ class DataStore(InitializerInterface):
     def _load_phone_numbers_to_featurize(self, dataframe: Optional[PandasDataFrame]) -> None:
         fpath = self._get_input_data_file_path('phone_numbers_to_featurize', missing_allowed=True)
         if fpath or dataframe is not None:
-            print('Loading phone numbers of interest...')
+            if self.cfg.verbose >= 1:
+                print('Loading phone numbers of interest...')
             self.phone_numbers_to_featurize = self.io_utils.load_phone_numbers_to_featurize(
                 fpath, df=dataframe
             )
+            if self.cfg.verbose >= 2:
+                shape = (self.phone_numbers_to_featurize.count(), len(self.phone_numbers_to_featurize.columns))
+                print(f"Shape: {shape}")
+                print(f"Read in phone numbers of interest:")
+                self.phone_numbers_to_featurize.show()
+                print("\n")
 
 
     def merge(self) -> None:
@@ -502,26 +490,18 @@ class DataStore(InitializerInterface):
             end_date: e.g. '2020-01-10'
         """
         for dataset_name in self.datasets:
-            if self.cfg.verbose >= 1:
-                print(f"Filtering {dataset_name}...")
-            try:
-                shape = (getattr(self, dataset_name, None).count(), len(getattr(self, dataset_name, None).columns))
-                if self.cfg.verbose >= 2:
-                    print(f"Shape before filtering: {shape}")
-                    print("\n")
-            except:
-                print(f"Error for {dataset_name}")
             dataset = getattr(self, dataset_name, None)
             if dataset is not None:
+                if self.cfg.verbose >= 1:
+                    print(f"Filtering {dataset_name}...")
+                if self.cfg.verbose >= 2:
+                    shape = (dataset.count(), len(dataset.columns))
+                    print(f"Shape before filtering: {shape}")
+                    print("\n")
                 setattr(self, dataset_name, filter_dates_dataframe(dataset, start_date, end_date))
-            try:
-                print(f"Number of rows after filter: {getattr(self, dataset_name, None).count()}")
-                print(f"Number of columns: {len(getattr(self, dataset_name, None).columns)}")
-                shape = (getattr(self, dataset_name, None).count(), len(getattr(self, dataset_name, None).columns))
-                print(f"Shape after filter: {shape}")
-                print("\n")
-            except:
-                print(f"Error for {dataset_name}")
+                if self.cfg.verbose >= 2:
+                    shape = (getattr(self, dataset_name, None).count(), len(getattr(self, dataset_name, None).columns))
+                    print(f"Shape after filtering dates: {shape}")
 
     def deduplicate(self) -> None:
         """
@@ -549,7 +529,8 @@ class DataStore(InitializerInterface):
         self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(
             lambda r: r[0]).collect()
         pd.DataFrame(self.spammers).to_csv(self.working_directory_path / 'datasets' / 'spammers.csv', index=False)
-        print('Number of spammers identified: %i' % len(self.spammers))
+        if self.cfg.verbose >= 1:
+            print('Number of spammers identified: %i' % len(self.spammers))
 
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
         self.cdr = self.cdr.where(~col('caller_id').isin(self.spammers))
@@ -589,14 +570,17 @@ class DataStore(InitializerInterface):
         outliers = list(outliers['day'])
         if outliers and isinstance(outliers[0], str):
             outliers = [outlier.split('T')[0] for outlier in outliers]
-            print('Outliers removed: ' + ', '.join(outliers))
+            if self.cfg.verbose >= 1:
+                print('Outliers removed: ' + ', '.join(outliers))
         else:
             outliers = [outlier.strftime("%Y-%m-%d") for outlier in outliers]
-            print('Outliers removed: ' + ', '.join(outliers))
+            if self.cfg.verbose >= 1:
+                print('Outliers removed: ' + ', '.join(outliers))
 
         # Remove outlier days from all datasets
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
-            print(df_name)
+            if self.cfg.verbose >= 1:
+                print(f"Filtering outlier days from {df_name}...")
             for outlier in outliers:
                 outlier = pd.to_datetime(outlier)
                 if getattr(self, df_name, None) is not None:
@@ -636,10 +620,12 @@ class DataStore(InitializerInterface):
             outliers.update(list(data[(data[col] < bottom) | (data[col] > toprange[i])].index.values))
 
         if dry_run:
-            print(f"There are {len(outliers)} outliers that could be removed.")
+            if self.cfg.verbose >= 1:
+                print(f"There are {len(outliers)} outliers that could be removed.")
         else:
             self.survey_data = self.survey_data[~self.survey_data['unique_id'].isin(outliers)]
-            print(f"Removed {len(outliers)} outliers!")
+            if self.cfg.verbose >= 1:
+                print(f"Removed {len(outliers)} outliers!")
 
         return outliers
 
