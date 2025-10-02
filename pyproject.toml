@@ -6,28 +6,31 @@ authors = ["Emily Aiken, Lucio Melito, Andrew Vaziri"]
 
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.10"
-pandas = "^1.3.3"
-numpy = "^1.21.2"
+python = ">=3.8,<3.12"
+pandas = ">=1.3.3"
+numpy = ">1.19.3,<1.24"
+scipy = ">=1.10.0,<1.12"
+scikit-learn = { version = "0.24.2", extras = [] }
+
 bandicoot = "^0.6.0"
 mypy = "^0.910"
-pyspark = "^3.1.2"
-geopandas = "^0.9.0"
+pyspark = ">=3.4.0"
+geopandas = ">=0.13.0"
 seaborn = "^0.11.2"
-matplotlib = "^3.4.3"
-rasterio = "^1.2.8"
+matplotlib = ">=3.4.3"
+rasterio = ">=1.2.8"
 Shapely = "^1.7.1"
 lightgbm = "^3.2.1"
 joblib = "^1.0.1"
 python-box = "^5.4.1"
 wpca = "^0.1"
-geovoronoi = "^0.3.0"
+geovoronoi = "^0.4.0"
 pyquadkey2 = "^0.2.0"
-PyYAML = "^5.4.1"
-scikit-misc = "^0.1.4"
-auto-sklearn = "^0.12.0"
+PyYAML = ">=6.0.0"
+scikit-misc = ">=0.1.4"
+auto-sklearn = "0.15.0"
 autoflake = "^1.4"
-pandas-stubs = "^1.2.0"
+pandas-stubs = ">=1.2.0"
 setuptools = "^58.2.0"
 wheel = "^0.37.0"
 mxnet = ">=1.7.0, <2.0.0"
@@ -44,7 +47,7 @@ black = "^21.9b0"
 pytest-mock = "^3.6.1"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=1.0.0", "numpy>=1.22,<1.26"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.mypy]
