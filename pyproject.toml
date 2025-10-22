@@ -6,17 +6,17 @@ authors = ["Emily Aiken, Lucio Melito, Andrew Vaziri"]
 
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.10"
-pandas = "^1.3.3"
-numpy = "^1.21.2"
+python = ">=3.11,<3.13" # Updated Python version for compatibility with newer packages and to support Python 3.12.
+pandas = "^2.1.0" # Updated for modernization and better compatibility.
+numpy = "^1.24.0" # Updated for modernization and compatibility with auto-sklearn.
 bandicoot = "^0.6.0"
-mypy = "^0.910"
+# mypy removed from main dependencies as it is a development tool and belongs in dev-dependencies.
 pyspark = "^3.1.2"
 geopandas = "^0.9.0"
 seaborn = "^0.11.2"
 matplotlib = "^3.4.3"
 rasterio = "^1.2.8"
-Shapely = "^1.7.1"
+shapely = "^1.7.1" # Corrected capitalization for canonical package name.
 lightgbm = "^3.2.1"
 joblib = "^1.0.1"
 python-box = "^5.4.1"
@@ -25,12 +25,12 @@ geovoronoi = "^0.3.0"
 pyquadkey2 = "^0.2.0"
 PyYAML = "^5.4.1"
 scikit-misc = "^0.1.4"
-auto-sklearn = "^0.12.0"
+auto-sklearn = "^0.15.0" # Updated to a more recent stable version.
 autoflake = "^1.4"
 pandas-stubs = "^1.2.0"
 setuptools = "^58.2.0"
 wheel = "^0.37.0"
-mxnet = ">=1.7.0, <2.0.0"
+# Removed: mxnet is deprecated and not actively maintained, causing compatibility issues.
 Rtree = "^0.9.7"
 hashids = "^1.3.1"
 
