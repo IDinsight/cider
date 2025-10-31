@@ -25,7 +25,7 @@ jobs:
             pyproject.toml
       - run: |
           pip install uv
-          uv sync
+          uv sync --all
 
       - name: Run MyPy
         run: |
