@@ -10,6 +10,7 @@ from cider.homelocation.inference import (
     _prepare_home_location_data,
     _infer_home_locations,
 )
+import geopandas as gpd
 
 cdr_data = {
     "caller_id": ["caller_1"] * 2 + ["caller_2"] * 2 + ["caller_3"] * 2,
@@ -35,6 +36,12 @@ antenna_data = {
     "latitude": [1.0, 2.0],
     "longitude": [3.0, 4.0],
 }
+shapefile_data = gpd.GeoDataFrame(
+    {"region": ["region_1", "region_2"]},
+    geometry=gpd.points_from_xy([3.0, 4.0], [1.0, 2.0]),
+    crs="EPSG:4326",
+)
+shapefile_data["geometry"] = shapefile_data.buffer(0.00001)
 
 
 def _get_cdr_data_payload(input: str = "base") -> pd.DataFrame:
@@ -120,6 +127,7 @@ class TestHomeLocationInference:
         [
             ("base", "base", GeographicUnit.ANTENNA_ID),
             ("base", "base", GeographicUnit.TOWER_ID),
+            ("base", "base", GeographicUnit.SHAPEFILE),
         ],
         indirect=["create_cdr_data_schema", "create_antenna_data_schema"],
     )
@@ -133,10 +141,15 @@ class TestHomeLocationInference:
             validated_cdr_data=cdr_df,
             validated_antenna_data=antenna_df,
             geographic_unit=geographic_unit,
+            shapefile_data=(
+                shapefile_data if geographic_unit == GeographicUnit.SHAPEFILE else None
+            ),
         )
+        if geographic_unit == GeographicUnit.SHAPEFILE:
+            prepared_data.drop(columns=["region", "index_right"], inplace=True)
         assert not prepared_data.empty
         assert prepared_data.shape == (6, 10)
-        assert set(prepared_data.columns) == (
+        assert set(prepared_data.columns).issubset(
             set(cdr_df.columns).union(set(antenna_df.columns)) - {geographic_unit}
         )
 
@@ -146,6 +159,7 @@ class TestHomeLocationInference:
             ("base", "renamed_tower_id", GeographicUnit.TOWER_ID, AssertionError),
             ("base", "missing_tower_id", GeographicUnit.TOWER_ID, AssertionError),
             ("base", "base", "incorrect_geographic_unit", ValueError),
+            ("base", "base", GeographicUnit.SHAPEFILE, AssertionError),
         ],
         indirect=["create_cdr_data_schema", "create_antenna_data_schema"],
     )

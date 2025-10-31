@@ -71,10 +71,12 @@ def _prepare_home_location_data(
                 ),
                 crs="EPSG:4326",
             )
-            antennas = gpd.sjoin(antennas_gdf, shapefile_data, op="within", how="left")
+            antennas = gpd.sjoin(
+                antennas_gdf, shapefile_data, predicate="within", how="left"
+            )
 
             prepared_data = validated_cdr_data.merge(
-                antennas.drop(columns=["geometry"]),
+                antennas,
                 left_on="caller_antenna_id",
                 right_on="antenna_id",
                 how="inner",
