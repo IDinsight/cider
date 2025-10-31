@@ -2,12 +2,18 @@
 name = "cider"
 version = "0.1.0"
 description = "Poverty prediction and location inference with mobile phone call data records"
-authors = ["Emily Aiken, Lucio Melito, Andrew Vaziri"]
+authors = [
+    { name = "Emily Aiken" },
+    { name = "Lucio Melito" },
+    { name = "Andrew Vaziri" }
+]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "bandicoot>=0.6.0",
     "geopandas>=1.1.1",
+    "geovoronoi>=0.4.0",
+    "importlib-resources>=6.5.2",
     "ipykernel>=7.0.1",
     "jupyter>=1.1.1",
     "matplotlib>=3.10.7",
@@ -16,7 +22,9 @@ dependencies = [
     "pandas>=2.3.3",
     "pyspark>=4.0.1",
     "pytest-mock>=3.15.1",
+    "python-box>=7.3.2",
     "pyyaml>=6.0.3",
+    "rasterio>=1.4.3",
     "scikit-learn>=1.7.2",
     "seaborn>=0.13.2",
 ]
@@ -31,3 +39,6 @@ dev = [
     "pytest>=8.4.2",
     "ruff>=0.14.1",
 ]
+
+[tool.setuptools]
+packages = ["cider"]
