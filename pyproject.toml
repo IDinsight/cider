@@ -11,6 +11,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "bandicoot>=0.6.0",
+    "deepdiff>=8.6.1",
     "geopandas>=1.1.1",
     "geovoronoi>=0.4.0",
     "importlib-resources>=6.5.2",
@@ -20,6 +21,7 @@ dependencies = [
     "mypy>=1.18.2",
     "numpy>=2.3.4",
     "pandas>=2.3.3",
+    "pydantic>=2.12.3",
     "pyspark>=4.0.1",
     "pytest-mock>=3.15.1",
     "python-box>=7.3.2",
