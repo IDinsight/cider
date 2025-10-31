@@ -2,7 +2,14 @@ from .schemas import GetHomeLocationAlgorithm, GeographicUnit
 import pandas as pd
 import geopandas as gpd
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import count, desc_nulls_last, row_number, col
+from pyspark.sql.functions import (
+    count,
+    desc_nulls_last,
+    row_number,
+    col,
+    to_date,
+    countDistinct,
+)
 from pyspark.sql.window import Window
 
 
@@ -23,7 +30,6 @@ def _prepare_home_location_data(
     Returns:
         prepared_data: prepared data for home location inference
     """
-
     match geographic_unit:
         case GeographicUnit.ANTENNA_ID:
             prepared_data = validated_cdr_data.merge(
@@ -31,15 +37,27 @@ def _prepare_home_location_data(
                 left_on="caller_antenna_id",
                 right_on="antenna_id",
                 how="inner",
-            ).drop(columns=["antenna_id"])
+            )
+            assert (
+                not prepared_data.empty
+            ), "Prepared data is empty after merging CDR and antenna data. Please check the input data."
+
+            prepared_data.drop(columns=["antenna_id"], inplace=True)
 
         case GeographicUnit.TOWER_ID:
+            assert (
+                "tower_id" in validated_antenna_data.columns
+            ), f"Antenna data must contain 'tower_id' column for geographic unit {GeographicUnit.TOWER_ID}."
             prepared_data = validated_cdr_data.merge(
                 validated_antenna_data,
                 left_on="caller_antenna_id",
                 right_on="tower_id",
                 how="inner",
-            ).drop(columns=["tower_id"])
+            )
+            assert (
+                not prepared_data.empty
+            ), "Prepared data is empty after merging CDR and antenna data. Please check the input data."
+            prepared_data.drop(columns=["tower_id"], inplace=True)
 
         case GeographicUnit.SHAPEFILE:
             assert (
@@ -60,15 +78,14 @@ def _prepare_home_location_data(
                 left_on="caller_antenna_id",
                 right_on="antenna_id",
                 how="inner",
-            ).drop(columns=["antenna_id", "geometry"])
+            )
+            assert (
+                not prepared_data.empty
+            ), "Prepared data is empty after merging CDR and antenna data. Please check the input data."
+            prepared_data.drop(columns=["antenna_id", "geometry"], inplace=True)
 
         case _:
             raise ValueError(f"Unsupported geographic unit: {geographic_unit}")
-
-    if prepared_data.empty:
-        raise ValueError(
-            "Prepared data is empty after merging CDR and antenna data. Please check the input data."
-        )
 
     return prepared_data
 
@@ -76,7 +93,7 @@ def _prepare_home_location_data(
 def _infer_home_locations(
     prepared_data: pd.DataFrame,
     algorithm: GetHomeLocationAlgorithm,
-    spark: SparkSession,
+    spark_session: SparkSession,
 ) -> pd.DataFrame:
     """
     Infer home locations based on the specified algorithm
@@ -87,7 +104,7 @@ def _infer_home_locations(
     Returns:
         home_locations: inferred home locations
     """
-    prepared_data_spark = spark.createDataFrame(prepared_data)
+    prepared_data_spark = spark_session.createDataFrame(prepared_data)
     match algorithm:
         case GetHomeLocationAlgorithm.COUNT_TRANSACTIONS:
             grouped_data = prepared_data_spark.groupby(
@@ -107,17 +124,15 @@ def _infer_home_locations(
             )
 
         case GetHomeLocationAlgorithm.COUNT_DAYS:
-            prepared_data_spark["day"] = prepared_data_spark["timestamp"].cast("day")
-            grouped_data = (
-                prepared_data_spark.groupby(
-                    [
-                        "caller_id",
-                        "caller_antenna_id",
-                    ]
-                )
-                .countDistinct("day")
-                .alias("days_count")
+            prepared_data_spark = prepared_data_spark.withColumn(
+                "day", to_date("timestamp")
             )
+            grouped_data = prepared_data_spark.groupby(
+                [
+                    "caller_id",
+                    "caller_antenna_id",
+                ]
+            ).agg(countDistinct("day").alias("transaction_days_count"))
             window = Window.partitionBy("caller_id").orderBy(
                 desc_nulls_last("transaction_days_count")
             )
@@ -128,7 +143,9 @@ def _infer_home_locations(
             )
 
         case GetHomeLocationAlgorithm.COUNT_MODAL_DAYS:
-            prepared_data_spark["day"] = prepared_data_spark["timestamp"].cast("day")
+            prepared_data_spark = prepared_data_spark.withColumn(
+                "day", to_date("timestamp")
+            )
             grouped_data = prepared_data_spark.groupby(
                 ["caller_id", "caller_antenna_id", "day"]
             ).agg(count("timestamp").alias("transactions_per_day_count"))
