@@ -30,6 +30,7 @@ def _prepare_home_location_data(
     Returns:
         prepared_data: prepared data for home location inference
     """
+    columns_to_drop = []
     match geographic_unit:
         case GeographicUnit.ANTENNA_ID:
             prepared_data = validated_cdr_data.merge(
@@ -38,31 +39,26 @@ def _prepare_home_location_data(
                 right_on="antenna_id",
                 how="inner",
             )
-            assert (
-                not prepared_data.empty
-            ), "Prepared data is empty after merging CDR and antenna data. Please check the input data."
-
-            prepared_data.drop(columns=["antenna_id"], inplace=True)
+            columns_to_drop.append("antenna_id")
 
         case GeographicUnit.TOWER_ID:
-            assert (
-                "tower_id" in validated_antenna_data.columns
-            ), f"Antenna data must contain 'tower_id' column for geographic unit {GeographicUnit.TOWER_ID}."
+            if "tower_id" not in validated_antenna_data.columns:
+                raise ValueError(
+                    "Antenna data must contain 'tower_id' column for geographic unit TOWER_ID."
+                )
             prepared_data = validated_cdr_data.merge(
                 validated_antenna_data,
                 left_on="caller_antenna_id",
                 right_on="tower_id",
                 how="inner",
             )
-            assert (
-                not prepared_data.empty
-            ), "Prepared data is empty after merging CDR and antenna data. Please check the input data."
-            prepared_data.drop(columns=["tower_id"], inplace=True)
+            columns_to_drop.append("tower_id")
 
         case GeographicUnit.SHAPEFILE:
-            assert (
-                shapefile_data is not None
-            ), f"Shapefile data must be provided for geographic unit {GeographicUnit.SHAPEFILE}."
+            if shapefile_data is None:
+                raise ValueError(
+                    f"Shapefile data must be provided for geographic unit {GeographicUnit.SHAPEFILE}."
+                )
 
             antennas_gdf = gpd.GeoDataFrame(
                 validated_antenna_data,
@@ -81,13 +77,16 @@ def _prepare_home_location_data(
                 right_on="antenna_id",
                 how="inner",
             )
-            assert (
-                not prepared_data.empty
-            ), "Prepared data is empty after merging CDR and antenna data. Please check the input data."
-            prepared_data.drop(columns=["antenna_id", "geometry"], inplace=True)
+            columns_to_drop = ["antenna_id", "geometry"]
 
         case _:
             raise ValueError(f"Unsupported geographic unit: {geographic_unit}")
+
+    if prepared_data.empty:
+        raise ValueError(
+            "Prepared data is empty after merging CDR and antenna data. Please check the input data."
+        )
+    prepared_data.drop(columns=columns_to_drop, inplace=True)
 
     return prepared_data
 
@@ -96,6 +95,7 @@ def _infer_home_locations(
     prepared_data: pd.DataFrame,
     algorithm: GetHomeLocationAlgorithm,
     spark_session: SparkSession,
+    additional_columns_to_keep: list[str] = [],
 ) -> pd.DataFrame:
     """
     Infer home locations based on the specified algorithm
@@ -103,10 +103,18 @@ def _infer_home_locations(
     Args:
         prepared_data: prepared data for home location inference
         algorithm: algorithm to use for home location inference
+        spark_session: Spark session
+        additional_columns_to_keep: list of additional columns to keep in the output
+            (by default we keep only caller_id and caller_antenna_id columns)
     Returns:
         home_locations: inferred home locations
     """
     prepared_data_spark = spark_session.createDataFrame(prepared_data)
+    if not set(additional_columns_to_keep).issubset(set(prepared_data_spark.columns)):
+        raise ValueError(
+            "Some additional columns to keep are not present in the prepared data."
+        )
+
     match algorithm:
         case GetHomeLocationAlgorithm.COUNT_TRANSACTIONS:
             grouped_data = prepared_data_spark.groupby(
@@ -114,6 +122,7 @@ def _infer_home_locations(
                     "caller_id",
                     "caller_antenna_id",
                 ]
+                + additional_columns_to_keep
             ).agg(count("timestamp").alias("transaction_count"))
 
             window = Window.partitionBy("caller_id").orderBy(
@@ -122,7 +131,10 @@ def _infer_home_locations(
             grouped_data = (
                 grouped_data.withColumn("order", row_number().over(window))
                 .where(col("order") == 1)
-                .select(["caller_id", "caller_antenna_id", "transaction_count"])
+                .select(
+                    ["caller_id", "caller_antenna_id", "transaction_count"]
+                    + additional_columns_to_keep
+                )
             )
 
         case GetHomeLocationAlgorithm.COUNT_DAYS:
@@ -134,6 +146,7 @@ def _infer_home_locations(
                     "caller_id",
                     "caller_antenna_id",
                 ]
+                + additional_columns_to_keep
             ).agg(countDistinct("day").alias("transaction_days_count"))
             window = Window.partitionBy("caller_id").orderBy(
                 desc_nulls_last("transaction_days_count")
@@ -141,7 +154,10 @@ def _infer_home_locations(
             grouped_data = (
                 grouped_data.withColumn("order", row_number().over(window))
                 .where(col("order") == 1)
-                .select(["caller_id", "caller_antenna_id", "transaction_days_count"])
+                .select(
+                    ["caller_id", "caller_antenna_id", "transaction_days_count"]
+                    + additional_columns_to_keep
+                )
             )
 
         case GetHomeLocationAlgorithm.COUNT_MODAL_DAYS:
@@ -149,7 +165,7 @@ def _infer_home_locations(
                 "day", to_date("timestamp")
             )
             grouped_data = prepared_data_spark.groupby(
-                ["caller_id", "caller_antenna_id", "day"]
+                ["caller_id", "caller_antenna_id", "day"] + additional_columns_to_keep
             ).agg(count("timestamp").alias("transactions_per_day_count"))
             window = Window.partitionBy(["caller_id", "day"]).orderBy(
                 desc_nulls_last("transactions_per_day_count")
@@ -157,7 +173,9 @@ def _infer_home_locations(
             grouped_data = (
                 grouped_data.withColumn("order", row_number().over(window))
                 .where(col("order") == 1)
-                .groupby(["caller_id", "caller_antenna_id"])
+                .groupby(
+                    ["caller_id", "caller_antenna_id"] + additional_columns_to_keep
+                )
                 .agg(count("order").alias("transaction_modal_days_count"))
             )
             window = Window.partitionBy("caller_id").orderBy(
@@ -168,6 +186,7 @@ def _infer_home_locations(
                 .where(col("order") == 1)
                 .select(
                     ["caller_id", "caller_antenna_id", "transaction_modal_days_count"]
+                    + additional_columns_to_keep
                 )
             )
         case _:
@@ -184,6 +203,7 @@ def get_home_locations(
     geographic_unit: GeographicUnit,
     algorithm: GetHomeLocationAlgorithm,
     shapefile_data: gpd.GeoDataFrame | None = None,
+    additional_columns_to_keep: list[str] = [],
 ) -> pd.DataFrame:
     """
     Get home locations based on the specified parameters
@@ -195,6 +215,8 @@ def get_home_locations(
         geographic_unit: geographic unit for home location inference
         algorithm: algorithm to use for home location inference
         shapefile_data: optional shapefile data for geographic boundaries
+        additional_columns_to_keep: list of additional columns to keep in the output
+            (by default we keep only caller_id and caller_antenna_id columns)
 
     Returns:
         DataFrame containing the inferred home locations
@@ -202,5 +224,76 @@ def get_home_locations(
     prepared_data = _prepare_home_location_data(
         validated_cdr_data, validated_antenna_data, geographic_unit, shapefile_data
     )
-    home_locations = _infer_home_locations(prepared_data, algorithm, spark_session)
+    home_locations = _infer_home_locations(
+        prepared_data, algorithm, spark_session, additional_columns_to_keep
+    )
     return home_locations
+
+
+def get_accuracy(
+    inferred_home_locations: pd.DataFrame,
+    groundtruth_home_locations: pd.DataFrame,
+    column_to_merge_on: str = "caller_id",
+    column_to_measure_on: str = "caller_antenna_id",
+) -> pd.DataFrame:
+    """
+    Get accuracy of inferred home locations compared to true home locations
+
+    Args:
+        geographic_unit: geographic unit for home location inference
+        algorithm: algorithm used for home location inference
+        column_to_merge_on: column to merge on (default is 'caller_id')
+        column_to_measure_on: column to measure accuracy on (default is 'caller_antenna_id')
+
+    Returns:
+        accuracy: description of the accuracy of the home location inference
+    """
+    if (column_to_merge_on not in inferred_home_locations.columns) or (
+        column_to_merge_on not in groundtruth_home_locations.columns
+    ):
+        raise ValueError(
+            f"Column '{column_to_merge_on}' must be present in both inferred and groundtruth home locations data."
+        )
+    if (column_to_measure_on not in inferred_home_locations.columns) or (
+        column_to_measure_on not in groundtruth_home_locations.columns
+    ):
+        raise ValueError(
+            f"Column '{column_to_measure_on}' must be present in both inferred and groundtruth home locations data."
+        )
+    merged_data = inferred_home_locations.merge(
+        groundtruth_home_locations,
+        on=column_to_merge_on,
+        how="inner",
+        suffixes=("_inferred", "_groundtruth"),
+    )
+    merged_data["is_correct"] = (
+        merged_data[column_to_measure_on + "_inferred"]
+        == merged_data[column_to_measure_on + "_groundtruth"]
+    )
+
+    recall = (
+        merged_data[[column_to_measure_on + "_groundtruth", "is_correct"]]
+        .groupby(column_to_measure_on + "_groundtruth", as_index=False)
+        .mean()
+    )
+    recall.rename(columns={"is_correct": "recall"}, inplace=True)
+    precision = (
+        merged_data[[column_to_measure_on + "_inferred", "is_correct"]]
+        .groupby(column_to_measure_on + "_inferred", as_index=False)["is_correct"]
+        .mean()
+    )
+    precision.rename(columns={"is_correct": "precision"}, inplace=True)
+
+    table = recall.merge(
+        precision,
+        left_on=column_to_measure_on + "_groundtruth",
+        right_on=column_to_measure_on + "_inferred",
+        how="outer",
+    ).fillna(0)
+    table = table.merge(
+        merged_data[[column_to_measure_on + "_groundtruth", "is_correct"]],
+        on=column_to_measure_on + "_groundtruth",
+        how="left",
+    )
+
+    return table

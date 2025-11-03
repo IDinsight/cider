@@ -9,10 +9,12 @@ from cider.homelocation.schemas import (
 from cider.homelocation.inference import (
     _prepare_home_location_data,
     _infer_home_locations,
+    get_home_locations,
+    get_accuracy,
 )
 import geopandas as gpd
 
-cdr_data = {
+CDR_DATA = {
     "caller_id": ["caller_1"] * 2 + ["caller_2"] * 2 + ["caller_3"] * 2,
     "recipient_id": ["recipient_1"] * 6,
     "caller_antenna_id": ["antenna_1", "antenna_2"] * 3,
@@ -30,38 +32,47 @@ cdr_data = {
     "transaction_type": ["text", "call"] * 3,
     "transaction_scope": ["domestic"] * 2 + ["international"] * 2 + ["other"] * 2,
 }
-antenna_data = {
+ANTENNA_DATA = {
     "antenna_id": ["antenna_1", "antenna_2"],
     "tower_id": ["antenna_1", "antenna_2"],
     "latitude": [1.0, 2.0],
     "longitude": [3.0, 4.0],
 }
-shapefile_data = gpd.GeoDataFrame(
+SHAPEFILE_DATA = gpd.GeoDataFrame(
     {"region": ["region_1", "region_2"]},
     geometry=gpd.points_from_xy([3.0, 4.0], [1.0, 2.0]),
-    crs="EPSG:4326",
 )
-shapefile_data["geometry"] = shapefile_data.buffer(0.00001)
+SHAPEFILE_DATA.set_crs("EPSG:32636", inplace=True)
+SHAPEFILE_DATA["geometry"] = SHAPEFILE_DATA.buffer(0.0001)
+SHAPEFILE_DATA.to_crs("EPSG:4326", inplace=True)
+
+HOME_LOCATION_GT = pd.DataFrame(
+    {
+        "caller_id": ["caller_1", "caller_2", "caller_3"],
+        "caller_antenna_id": ["antenna_1", "antenna_1", "antenna_2"],
+        "region": ["region_1", "region_1", "region_2"],
+    }
+)
 
 
 def _get_cdr_data_payload(input: str = "base") -> pd.DataFrame:
     match input:
         case "base":
-            return pd.DataFrame(cdr_data)
+            return pd.DataFrame(CDR_DATA)
         case "invalid_field":
-            cdr_data_invalid = cdr_data.copy()
+            cdr_data_invalid = CDR_DATA.copy()
             cdr_data_invalid["invalid_field"] = [1, 2, 3, 4, 5, 6]
             return pd.DataFrame(cdr_data_invalid)
         case "missing_field":
-            cdr_data_missing = cdr_data.copy()
+            cdr_data_missing = CDR_DATA.copy()
             cdr_data_missing.pop("duration")
             return pd.DataFrame(cdr_data_missing)
         case "invalid_transaction_type":
-            cdr_data_invalid_type = cdr_data.copy()
+            cdr_data_invalid_type = CDR_DATA.copy()
             cdr_data_invalid_type["transaction_type"] = ["text", "invalid"] * 3
             return pd.DataFrame(cdr_data_invalid_type)
         case "invalid_transaction_scope":
-            cdr_data_invalid_scope = cdr_data.copy()
+            cdr_data_invalid_scope = CDR_DATA.copy()
             cdr_data_invalid_scope["transaction_scope"] = ["domestic", "invalid"] * 3
             return pd.DataFrame(cdr_data_invalid_scope)
 
@@ -69,21 +80,21 @@ def _get_cdr_data_payload(input: str = "base") -> pd.DataFrame:
 def _get_antenna_data_payload(input: str = "base") -> pd.DataFrame:
     match input:
         case "base":
-            return pd.DataFrame(antenna_data)
+            return pd.DataFrame(ANTENNA_DATA)
         case "invalid_field":
-            antenna_data_invalid = antenna_data.copy()
+            antenna_data_invalid = ANTENNA_DATA.copy()
             antenna_data_invalid["invalid_field"] = [1, 2]
             return pd.DataFrame(antenna_data_invalid)
         case "missing_field":
-            antenna_data_missing = antenna_data.copy()
+            antenna_data_missing = ANTENNA_DATA.copy()
             antenna_data_missing.pop("latitude")
             return pd.DataFrame(antenna_data_missing)
         case "missing_tower_id":
-            antenna_data_missing_tower = antenna_data.copy()
+            antenna_data_missing_tower = ANTENNA_DATA.copy()
             antenna_data_missing_tower.pop("tower_id")
             return pd.DataFrame(antenna_data_missing_tower)
         case "renamed_tower_id":
-            antenna_data_renamed = antenna_data.copy()
+            antenna_data_renamed = ANTENNA_DATA.copy()
             antenna_data_renamed["tower_id"] = ["tower_1", "tower_2"]
             return pd.DataFrame(antenna_data_renamed)
 
@@ -142,7 +153,7 @@ class TestHomeLocationInference:
             validated_antenna_data=antenna_df,
             geographic_unit=geographic_unit,
             shapefile_data=(
-                shapefile_data if geographic_unit == GeographicUnit.SHAPEFILE else None
+                SHAPEFILE_DATA if geographic_unit == GeographicUnit.SHAPEFILE else None
             ),
         )
         if geographic_unit == GeographicUnit.SHAPEFILE:
@@ -154,22 +165,22 @@ class TestHomeLocationInference:
         )
 
     @pytest.mark.parametrize(
-        "create_cdr_data_schema,create_antenna_data_schema,geographic_unit, error",
+        "create_cdr_data_schema,create_antenna_data_schema,geographic_unit",
         [
-            ("base", "renamed_tower_id", GeographicUnit.TOWER_ID, AssertionError),
-            ("base", "missing_tower_id", GeographicUnit.TOWER_ID, AssertionError),
-            ("base", "base", "incorrect_geographic_unit", ValueError),
-            ("base", "base", GeographicUnit.SHAPEFILE, AssertionError),
+            ("base", "renamed_tower_id", GeographicUnit.TOWER_ID),
+            ("base", "missing_tower_id", GeographicUnit.TOWER_ID),
+            ("base", "base", "incorrect_geographic_unit"),
+            ("base", "base", GeographicUnit.SHAPEFILE),
         ],
         indirect=["create_cdr_data_schema", "create_antenna_data_schema"],
     )
     def test_prepare_home_location_data_invalid_data(
-        self, create_cdr_data_schema, create_antenna_data_schema, geographic_unit, error
+        self, create_cdr_data_schema, create_antenna_data_schema, geographic_unit
     ):
         cdr_df = create_cdr_data_schema
         antenna_df = create_antenna_data_schema
 
-        with pytest.raises(error):
+        with pytest.raises(ValueError):
             _prepare_home_location_data(
                 validated_cdr_data=cdr_df,
                 validated_antenna_data=antenna_df,
@@ -217,6 +228,7 @@ class TestHomeLocationInference:
             geographic_unit=GeographicUnit.ANTENNA_ID,
         )
 
+        # Infer home locations
         inferred_locations = _infer_home_locations(
             prepared_data=prepared_data,
             algorithm=algorithm,
@@ -230,3 +242,104 @@ class TestHomeLocationInference:
             expected_output,
         }
         assert inferred_locations[expected_output].tolist() == [1, 1, 1]
+
+        # Infer home locations with additional columns to keep
+        inferred_locations = _infer_home_locations(
+            prepared_data=prepared_data,
+            algorithm=algorithm,
+            spark_session=spark,
+            additional_columns_to_keep=["transaction_type"],
+        )
+        assert not inferred_locations.empty
+        assert inferred_locations.shape == (3, 4)
+        assert set(inferred_locations.columns) == {
+            "caller_id",
+            "caller_antenna_id",
+            expected_output,
+            "transaction_type",
+        }
+        assert inferred_locations[expected_output].tolist() == [1, 1, 1]
+
+        with pytest.raises(ValueError):
+            inferred_locations = _infer_home_locations(
+                prepared_data=prepared_data,
+                algorithm=algorithm,
+                spark_session=spark,
+                additional_columns_to_keep=["some_invalid_column"],
+            )
+
+    @pytest.mark.parametrize(
+        "create_cdr_data_schema,create_antenna_data_schema,column_to_merge_on,column_to_measure_on",
+        [
+            ("base", "base", "caller_id", "caller_antenna_id"),
+            ("base", "base", "caller_id", "region"),
+            ("base", "base", "caller_antenna_id", "region"),
+        ],
+        indirect=["create_cdr_data_schema", "create_antenna_data_schema"],
+    )
+    def test_home_location_inference_accuracy(
+        self,
+        spark,
+        create_cdr_data_schema,
+        create_antenna_data_schema,
+        column_to_merge_on,
+        column_to_measure_on,
+    ):
+        cdr_data = create_cdr_data_schema
+        antenna_data = create_antenna_data_schema
+        home_locations = get_home_locations(
+            validated_cdr_data=cdr_data,
+            validated_antenna_data=antenna_data,
+            geographic_unit=GeographicUnit.SHAPEFILE,
+            algorithm=GetHomeLocationAlgorithm.COUNT_DAYS,
+            shapefile_data=SHAPEFILE_DATA,
+            spark_session=spark,
+            additional_columns_to_keep=["region"],
+        )
+        accuracy_table = get_accuracy(
+            inferred_home_locations=home_locations,
+            groundtruth_home_locations=HOME_LOCATION_GT,
+            column_to_merge_on=column_to_merge_on,
+            column_to_measure_on=column_to_measure_on,
+        )
+        assert not accuracy_table.empty
+        assert set(accuracy_table.columns) == {
+            column_to_measure_on + "_groundtruth",
+            column_to_measure_on + "_inferred",
+        } | {"recall", "precision", "is_correct"}
+        assert accuracy_table.shape[0] >= 1
+
+    @pytest.mark.parametrize(
+        "create_cdr_data_schema,create_antenna_data_schema,column_to_merge_on,column_to_measure_on",
+        [
+            ("base", "base", "some_invalid_id", "caller_antenna_id"),
+            ("base", "base", "caller_id", "some_invalid_id"),
+        ],
+        indirect=["create_cdr_data_schema", "create_antenna_data_schema"],
+    )
+    def test_home_location_inference_accuracy_failure(
+        self,
+        spark,
+        create_cdr_data_schema,
+        create_antenna_data_schema,
+        column_to_merge_on,
+        column_to_measure_on,
+    ):
+        cdr_data = create_cdr_data_schema
+        antenna_data = create_antenna_data_schema
+        home_locations = get_home_locations(
+            validated_cdr_data=cdr_data,
+            validated_antenna_data=antenna_data,
+            geographic_unit=GeographicUnit.SHAPEFILE,
+            algorithm=GetHomeLocationAlgorithm.COUNT_DAYS,
+            shapefile_data=SHAPEFILE_DATA,
+            spark_session=spark,
+            additional_columns_to_keep=["region"],
+        )
+        with pytest.raises(ValueError):
+            get_accuracy(
+                inferred_home_locations=home_locations,
+                groundtruth_home_locations=HOME_LOCATION_GT,
+                column_to_merge_on=column_to_merge_on,
+                column_to_measure_on=column_to_measure_on,
+            )
