@@ -194,8 +194,8 @@ def _infer_home_locations(
         case _:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
 
-    grouped_data = grouped_data.toPandas()
-    return grouped_data
+    grouped_data_pd = grouped_data.toPandas()
+    return grouped_data_pd
 
 
 def get_home_locations(
@@ -286,7 +286,7 @@ def get_accuracy(
     recall.rename(columns={"is_correct": "recall"}, inplace=True)
     precision = (
         merged_data[[column_to_measure_on + "_inferred", "is_correct"]]
-        .groupby(column_to_measure_on + "_inferred", as_index=False)["is_correct"]
+        .groupby(column_to_measure_on + "_inferred", as_index=False)
         .mean()
     )
     precision.rename(columns={"is_correct": "precision"}, inplace=True)
