@@ -12,6 +12,7 @@ from cider.homelocation.inference import (
     get_home_locations,
     get_accuracy,
 )
+from cider.homelocation.dependencies import _deduplicate_points_within_buffer
 import geopandas as gpd
 
 CDR_DATA = {
@@ -53,6 +54,17 @@ HOME_LOCATION_GT = pd.DataFrame(
         "region": ["region_1", "region_1", "region_2"],
     }
 )
+
+POINTS_DATA = gpd.GeoDataFrame(
+    {
+        "ids": ["a", "b", "c"],
+        "geometry": gpd.points_from_xy(
+            [0.0001, 0.1, 0.00003], [0.0004, 0.0004, 0.0004]
+        ),
+    }
+)
+POINTS_DATA = POINTS_DATA.set_crs(epsg=4326)
+POINTS_DATA = POINTS_DATA.to_crs(epsg=3857)
 
 
 def _get_cdr_data_payload(input: str = "base") -> pd.DataFrame:
@@ -343,3 +355,14 @@ class TestHomeLocationInference:
                 column_to_merge_on=column_to_merge_on,
                 column_to_measure_on=column_to_measure_on,
             )
+
+
+class TestHomeLocationDependencies:
+
+    def test_deduplication_code(self):
+        deduplicated_points = _deduplicate_points_within_buffer(
+            xy_points=POINTS_DATA, points_id_col="ids", buffer_distance=1e4
+        )
+        assert not deduplicated_points.empty
+        assert len(deduplicated_points) == 2
+        assert set(deduplicated_points["ids"]) == {"a", "b"}

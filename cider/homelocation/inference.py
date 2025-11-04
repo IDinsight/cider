@@ -27,6 +27,7 @@ def _prepare_home_location_data(
         validated_cdr_data: validated call data records
         validated_antenna_data: validated antenna data
         geographic_unit: geographic unit to use for home location inference
+
     Returns:
         prepared_data: prepared data for home location inference
     """
@@ -106,6 +107,7 @@ def _infer_home_locations(
         spark_session: Spark session
         additional_columns_to_keep: list of additional columns to keep in the output
             (by default we keep only caller_id and caller_antenna_id columns)
+
     Returns:
         home_locations: inferred home locations
     """
@@ -246,8 +248,9 @@ def get_accuracy(
         column_to_measure_on: column to measure accuracy on (default is 'caller_antenna_id')
 
     Returns:
-        accuracy: description of the accuracy of the home location inference
+        table: DataFrame containing accuracy, precision and recall metrics
     """
+    # Check for errors in input data
     if (column_to_merge_on not in inferred_home_locations.columns) or (
         column_to_merge_on not in groundtruth_home_locations.columns
     ):
@@ -260,12 +263,16 @@ def get_accuracy(
         raise ValueError(
             f"Column '{column_to_measure_on}' must be present in both inferred and groundtruth home locations data."
         )
+
+    # Merge data inferred and groundtruth home locations
     merged_data = inferred_home_locations.merge(
         groundtruth_home_locations,
         on=column_to_merge_on,
         how="inner",
         suffixes=("_inferred", "_groundtruth"),
     )
+
+    # Calculate metrics
     merged_data["is_correct"] = (
         merged_data[column_to_measure_on + "_inferred"]
         == merged_data[column_to_measure_on + "_groundtruth"]
@@ -284,6 +291,7 @@ def get_accuracy(
     )
     precision.rename(columns={"is_correct": "precision"}, inplace=True)
 
+    # Merge metrics into a single table
     table = recall.merge(
         precision,
         left_on=column_to_measure_on + "_groundtruth",
