@@ -6,13 +6,17 @@ from cider.homelocation.schemas import (
     GeographicUnit,
     GetHomeLocationAlgorithm,
 )
+from shapely import Polygon
 from cider.homelocation.inference import (
     _prepare_home_location_data,
     _infer_home_locations,
     get_home_locations,
     get_accuracy,
 )
-from cider.homelocation.dependencies import _deduplicate_points_within_buffer
+from cider.homelocation.dependencies import (
+    _deduplicate_points_within_buffer,
+    get_voronoi_tessellation,
+)
 import geopandas as gpd
 
 CDR_DATA = {
@@ -34,18 +38,27 @@ CDR_DATA = {
     "transaction_scope": ["domestic"] * 2 + ["international"] * 2 + ["other"] * 2,
 }
 ANTENNA_DATA = {
-    "antenna_id": ["antenna_1", "antenna_2"],
-    "tower_id": ["antenna_1", "antenna_2"],
-    "latitude": [1.0, 2.0],
-    "longitude": [3.0, 4.0],
+    "antenna_id": ["antenna_1", "antenna_2", "antenna_3"],
+    "tower_id": ["antenna_1", "antenna_2", "antenna_3"],
+    "latitude": [1.5001, 2.4987, 3.3467],
+    "longitude": [1.8965, 2.4231, 3.0078],
 }
 SHAPEFILE_DATA = gpd.GeoDataFrame(
-    {"region": ["region_1", "region_2"]},
-    geometry=gpd.points_from_xy([3.0, 4.0], [1.0, 2.0]),
+    {"region": ["region_1", "region_2", "region_3"]},
+    geometry=[
+        Polygon(
+            [(1.1920, 1.1245), (4.4358, 1.2395), (4.3526, 4.9873), (1.1557, 4.7873)]
+        ),
+        Polygon(
+            [(4.3467, 4.8236), (4.7957, 6.2368), (6.5823, 6.2366), (6.6757, 4.1905)]
+        ),
+        Polygon(
+            [(0.5873, 3.6922), (0.2684, 0.1578), (3.6124, 3.3649), (3.9823, 0.2396)]
+        ),
+    ],
 )
-SHAPEFILE_DATA.set_crs("EPSG:32636", inplace=True)
-SHAPEFILE_DATA["geometry"] = SHAPEFILE_DATA.buffer(0.0001)
-SHAPEFILE_DATA.to_crs("EPSG:4326", inplace=True)
+SHAPEFILE_DATA.set_crs("EPSG:4326", inplace=True)
+SHAPEFILE_DATA["geometry"] = SHAPEFILE_DATA.buffer(0)
 
 HOME_LOCATION_GT = pd.DataFrame(
     {
@@ -95,7 +108,7 @@ def _get_antenna_data_payload(input: str = "base") -> pd.DataFrame:
             return pd.DataFrame(ANTENNA_DATA)
         case "invalid_field":
             antenna_data_invalid = ANTENNA_DATA.copy()
-            antenna_data_invalid["invalid_field"] = [1, 2]
+            antenna_data_invalid["invalid_field"] = [1, 2, 3]
             return pd.DataFrame(antenna_data_invalid)
         case "missing_field":
             antenna_data_missing = ANTENNA_DATA.copy()
@@ -107,7 +120,7 @@ def _get_antenna_data_payload(input: str = "base") -> pd.DataFrame:
             return pd.DataFrame(antenna_data_missing_tower)
         case "renamed_tower_id":
             antenna_data_renamed = ANTENNA_DATA.copy()
-            antenna_data_renamed["tower_id"] = ["tower_1", "tower_2"]
+            antenna_data_renamed["tower_id"] = ["tower_1", "tower_2", "tower_3"]
             return pd.DataFrame(antenna_data_renamed)
 
 
@@ -366,3 +379,22 @@ class TestHomeLocationDependencies:
         assert not deduplicated_points.empty
         assert len(deduplicated_points) == 2
         assert set(deduplicated_points["ids"]) == {"a", "b"}
+
+    def test_voronoi_tesellation_code(self):
+        antenna_data = pd.DataFrame(ANTENNA_DATA)
+        antenna_data = gpd.GeoDataFrame(
+            antenna_data,
+            geometry=gpd.points_from_xy(
+                antenna_data["longitude"], antenna_data["latitude"]
+            ),
+            crs="EPSG:4326",
+        )
+        voronoi_gdf = get_voronoi_tessellation(
+            xy_points=antenna_data,
+            boundary_shapefile=SHAPEFILE_DATA,
+            points_id_col="antenna_id",
+            buffer_distance_for_deduplication=1e-6,
+        )
+        assert not voronoi_gdf.empty
+        assert len(voronoi_gdf) == 3
+        assert set(voronoi_gdf["antenna_id"]) == {"antenna_1", "antenna_2", "antenna_3"}

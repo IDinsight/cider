@@ -52,7 +52,7 @@ def _deduplicate_points_within_buffer(
     return deduplicated_points
 
 
-def voronoi_tessellation(
+def get_voronoi_tessellation(
     xy_points: gpd.GeoDataFrame,
     boundary_shapefile: gpd.GeoDataFrame,
     points_id_col: str,
@@ -67,8 +67,12 @@ def voronoi_tessellation(
         points_id_col: string point identifier for points
         buffer_distance_for_deduplication: distance threshold to consider points as duplicates
 
-    Returns: geopandas df with geometry column containing voronoi tessellation polygons
+    Returns:
+        voronoi_regions: geopandas df with geometry column containing voronoi tessellation polygons
     """
+    if points_id_col not in xy_points.columns:
+        raise ValueError(f"'{points_id_col}' not found in xy_points columns")
+
     xy_points = _deduplicate_points_within_buffer(
         xy_points=xy_points,
         points_id_col=points_id_col,
