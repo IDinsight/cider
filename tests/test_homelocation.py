@@ -331,7 +331,7 @@ class TestHomeLocationInference:
         assert set(accuracy_table.columns) == {
             column_to_measure_on + "_groundtruth",
             column_to_measure_on + "_inferred",
-        } | {"recall", "precision", "is_correct"}
+        } | {"recall", "precision"}
         assert accuracy_table.shape[0] >= 1
 
     @pytest.mark.parametrize(

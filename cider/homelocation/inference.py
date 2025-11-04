@@ -298,10 +298,5 @@ def get_accuracy(
         right_on=column_to_measure_on + "_inferred",
         how="outer",
     ).fillna(0)
-    table = table.merge(
-        merged_data[[column_to_measure_on + "_groundtruth", "is_correct"]],
-        on=column_to_measure_on + "_groundtruth",
-        how="left",
-    )
 
     return table

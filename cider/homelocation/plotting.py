@@ -43,9 +43,9 @@ def make_location_map(
             plot_title if plot_title else column_to_plot_label.replace("_", " ").title()
         )
 
-        markersizes: gpd.GeoSeries = 50  # Default marker size
+        markersizes: gpd.GeoSeries = None  # Default marker size
         if column_to_plot_markersize:
-            markersizes = inferred_home_locations[column_to_plot_markersize]
+            markersizes = inferred_home_locations[column_to_plot_markersize].values
             markersizes = (
                 (markersizes - markersizes.min())
                 * 50
