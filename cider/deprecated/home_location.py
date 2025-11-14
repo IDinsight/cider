@@ -50,7 +50,7 @@ from pyspark.sql.window import Window
 from rasterio.mask import mask  # type: ignore[import]
 from shapely.geometry import mapping  # type: ignore[import]
 from pathlib import Path
-from .datastore import DataStore, DataType
+from ..datastore import DataStore, DataType
 
 
 class HomeLocator:
