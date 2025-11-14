@@ -2,23 +2,36 @@
 name = "cider"
 version = "0.1.0"
 description = "Poverty prediction and location inference with mobile phone call data records"
-authors = ["Emily Aiken, Lucio Melito, Andrew Vaziri"]
+authors = [
+    { name = "Emily Aiken" },
+    { name = "Lucio Melito" },
+    { name = "Andrew Vaziri" }
+]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "bandicoot>=0.6.0",
+    "deepdiff>=8.6.1",
     "geopandas>=1.1.1",
+    "geovoronoi>=0.4.0",
+    "importlib-resources>=6.5.2",
     "ipykernel>=7.0.1",
     "jupyter>=1.1.1",
     "matplotlib>=3.10.7",
-    "mypy>=1.18.2",
     "numpy>=2.3.4",
     "pandas>=2.3.3",
+    "pandas-stubs>=2.3.2.250926",
+    "pydantic>=2.12.3",
     "pyspark>=4.0.1",
     "pytest-mock>=3.15.1",
+    "python-box>=7.3.2",
     "pyyaml>=6.0.3",
+    "rasterio>=1.4.3",
     "scikit-learn>=1.7.2",
+    "scipy-stubs>=1.16.3.0",
     "seaborn>=0.13.2",
+    "types-geopandas>=1.1.1.20250829",
+    "types-pyyaml>=6.0.12.20250915",
 ]
 
 [dependency-groups]
@@ -31,3 +44,9 @@ dev = [
     "pytest>=8.4.2",
     "ruff>=0.14.1",
 ]
+
+[tool.setuptools]
+packages = ["cider"]
+
+[tool.mypy]
+ignore_missing_imports = true

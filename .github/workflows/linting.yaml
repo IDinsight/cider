@@ -25,7 +25,9 @@ jobs:
             pyproject.toml
       - run: |
           pip install uv
-          uv sync
+          uv sync --all-groups
+      - name: Add .venv/bin to PATH
+        run: echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
 
       - name: Run MyPy
         run: |
