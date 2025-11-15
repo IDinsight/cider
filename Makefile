@@ -14,3 +14,9 @@ clear-nb:
 	else \
 		find $(DIRS) -not -path '*/\.*' -type f -name "*.ipynb" -exec uv run jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace {} +; \
 	fi
+
+# Delete Python cache files
+clear-pycache:
+	find .. -type f -name "*.py[co]" -delete
+	find .. -type d -name "__pycache__" -delete
+	find .. -type d -name ".pytest_cache" -delete
