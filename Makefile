@@ -1,6 +1,17 @@
 # Makes a fresh install of the repository environment
-fresh-env :
-	uv sync --no-install-project && uv run pre-commit install && cd ..
+fresh-env-pkg-dependencies:
+	uv sync --no-dev --no-install-project
+
+fresh-env-only-dev-dependencies:
+	uv sync --only-dev && uv run pre-commit install
+
+fresh-env-project-only:
+	uv pip install -e .
+
+fresh-env:
+	@make fresh-env-pkg-dependencies
+	@make fresh-env-only-dev-dependencies
+	@make fresh-env-project-only
 
 # Runs all tests
 test:
