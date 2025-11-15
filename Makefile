@@ -3,7 +3,7 @@ fresh-env-pkg-dependencies:
 	uv sync --no-dev --no-install-project
 
 fresh-env-only-dev-dependencies:
-	uv sync --only-dev && uv run pre-commit install
+	uv sync --only-dev
 
 fresh-env-project-only:
 	uv pip install -e .
@@ -12,6 +12,7 @@ fresh-env:
 	@make fresh-env-pkg-dependencies
 	@make fresh-env-only-dev-dependencies
 	@make fresh-env-project-only
+	pre-commit install
 
 # Runs all tests
 test:

@@ -7,6 +7,7 @@ on:
       - "**"
     paths:
       - "**.py"
+      - "Makefile"
 
 jobs:
   python-lint-check:
@@ -25,7 +26,7 @@ jobs:
             pyproject.toml
       - run: |
           pip install uv
-          uv sync --all-groups
+          make fresh-env-only-dev-dependencies
       - name: Add .venv/bin to PATH
         run: echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
 
