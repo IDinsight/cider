@@ -1,6 +1,37 @@
 # cider
 ## poverty prediction and targeting with mobile phone metadata
 
+### Local installation Deployment
+To install, and manage dependencies and virtual environments this project uses `uv`. Follow the [instructions](https://docs.astral.sh/uv/guides/install-python/) to install `uv`.
+
+From the root directory `make fresh-env`: this will establish a venv with all the needed dependencies.
+
+Once your venv is made you can use `uv run [command]` to run a single CLI command inside the venv.
+
+
+### Contributing
+Before contributing code please:
+
+* Run `make clear-nb` if you have made any changes to Jupyter notebooks you would like to commit.
+* Run `pre-commit install` to install pre-commit hooks that will run on every git commit to check code quality.
+* Run `uv update` if you made any changes to the dependencies. This will regenerate the `uv.lock` file.
+* Run `make test` and verify that the tests still pass.
+
+### Folder structure
+
+`src/cider`: cleaned / updated cider codesource
+`notebooks/`: Jupyter notebooks for analysis and exploration with cleaned code
+`deprecated/`: old code that is no longer in use but kept for reference
+`old_notebooks/`: old notebooks that are no longer in use but kept for reference
+`tests/`: unit tests for cleaned code in `src/cider`
+`synthetic_data/`: synthetic data generation scripts and generated data for testing and development purposes
+`configs/`: configuration files for various environments and settings (TO BE DEPRECATED SOON)
+
+
+---
+
+## OLD README BELOW - TO BE DELETED SOON
+
 ### Documentation
 Visit [cider's documentation](https://global-policy-lab.github.io/cider-documentation/intro.html).
 
