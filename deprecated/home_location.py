@@ -34,8 +34,8 @@ import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
 import rasterio  # type: ignore[import]
-from helpers.plot_utils import voronoi_tessellation
-from helpers.utils import get_spark_session, make_dir
+from deprecated.helpers.plot_utils import voronoi_tessellation
+from deprecated.helpers.utils import get_spark_session, make_dir
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (
@@ -50,7 +50,7 @@ from pyspark.sql.window import Window
 from rasterio.mask import mask  # type: ignore[import]
 from shapely.geometry import mapping  # type: ignore[import]
 from pathlib import Path
-from ..datastore import DataStore, DataType
+from .datastore import DataStore, DataType
 
 
 class HomeLocator:

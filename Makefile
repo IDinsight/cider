@@ -1,15 +1,34 @@
+# Makes a fresh install of the repository environment
+fresh-env-pkg-dependencies:
+	uv sync --no-dev --no-install-project
 
+fresh-env-only-dev-dependencies:
+	uv sync --only-dev
+
+fresh-env-project-only:
+	uv pip install -e .
+
+fresh-env:
+	@make fresh-env-pkg-dependencies
+	@make fresh-env-only-dev-dependencies
+	@make fresh-env-project-only
+	pre-commit install
 
 # Runs all tests
 test:
-	uv run ./check_for_unmarked_tests.sh
-	uv run pytest $(filter-out $@,$(MAKECMDGOALS))
+	uv run pytest tests/
 
 
 # Clears results from jupyter notebooks; results should not be commited as they contain binary blobs which bloat/obscure git history
 clear-nb:
-	find $(filter-out $@,$(MAKECMDGOALS)) -not -path '*/\.*' -type f -name "*.ipynb" -execdir jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace {} +
+	@if [ "$(DIRS)" = "" ]; then \
+		find . -not -path '*/\.*' -type f -name "*.ipynb" -exec uv run jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace {} +; \
+	else \
+		find $(DIRS) -not -path '*/\.*' -type f -name "*.ipynb" -exec uv run jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace {} +; \
+	fi
 
-# Dummy command, needed to interpret multiple words as args rather than commands. See https://stackoverflow.com/questions/6273608/how-to-pass-argument-to-makefile-from-command-line
-%:
-    @:
+# Delete Python cache files
+clear-pycache:
+	find . -type f -name "*.py[co]" -delete
+	find . -type d -name "__pycache__" -delete
+	find . -type d -name ".pytest_cache" -delete

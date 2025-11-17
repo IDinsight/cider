@@ -46,6 +46,7 @@ dev = [
 ]
 
 [tool.setuptools]
+package-dir = {"" = "src"}
 packages = ["cider"]
 
 [tool.mypy]

@@ -3,15 +3,15 @@
 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
-# are met: 
+# are met:
 
 # 1. Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer. 
+# notice, this list of conditions and the following disclaimer.
 
 # 2. Redistributions in binary form must reproduce the above copyright
-# notice, this list of conditions and the following disclaimer in the 
+# notice, this list of conditions and the following disclaimer in the
 # documentation and/or other materials provided with the
-# distribution. 
+# distribution.
 
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -26,20 +26,22 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import annotations
-from helpers.utils import make_dir, strictly_increasing
+from deprecated.helpers.utils import make_dir, strictly_increasing
 from joblib import load  # type: ignore[import]
 import numpy as np
 from numpy import ndarray
 import os
 import pandas as pd
 from pandas import DataFrame as PandasDataFrame, Series
-from sklearn.base import BaseEstimator, TransformerMixin, clone  # type: ignore[import]
-from sklearn.metrics import confusion_matrix, auc, r2_score  # type: ignore[import]
+from sklearn.base import BaseEstimator, TransformerMixin  # type: ignore[import]
+from sklearn.metrics import confusion_matrix, auc  # type: ignore[import]
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
 
-def metrics(a1: Union[ndarray, Series], a2: Union[ndarray, Series], p: float) -> Tuple[float, float, float, float, float]:
+def metrics(
+    a1: Union[ndarray, Series], a2: Union[ndarray, Series], p: float
+) -> Tuple[float, float, float, float, float]:
     """
     Computes classification metrics at a certain threshold, i.e. turn regression into classification by considering the
     bottom p% of targets as belonging to the positive class.
@@ -52,25 +54,25 @@ def metrics(a1: Union[ndarray, Series], a2: Union[ndarray, Series], p: float) ->
     Returns: Tuple with accuracy, precision, recall, true positive rate, false positive rate.
     """
     if p == 0 or p == 100:
-        raise ValueError('Percentage targeting must be between 0 and 100 (exclusive).')
+        raise ValueError("Percentage targeting must be between 0 and 100 (exclusive).")
 
-    num_ones = int((p/100)*len(a1))
+    num_ones = int((p / 100) * len(a1))
     num_zeros = len(a1) - num_ones
     targeting_vector = np.concatenate([np.ones(num_ones), np.zeros(num_zeros)])
-    
+
     a = np.vstack([a1, a2])
     a = a[:, a[0, :].argsort()]
     a[0, :] = targeting_vector
     a = a[:, a[1, :].argsort()]
     a[1, :] = targeting_vector
-    
+
     tn, fp, fn, tp = confusion_matrix(a[0, :], a[1, :]).ravel()
 
-    accuracy = (tp + tn)/(tp + tn + fp + fn)
-    precision = tp/(tp + fp)
-    recall = tp/(tp + fn)
+    accuracy = (tp + tn) / (tp + tn + fp + fn)
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
     tpr = recall
-    fpr = fp/(fp + tn)
+    fpr = fp / (fp + tn)
 
     return accuracy, precision, recall, tpr, fpr
 
@@ -88,16 +90,16 @@ def auc_overall(a1: Union[ndarray, Series], a2: Union[ndarray, Series]) -> float
     grid = np.linspace(1, 100, 99)[:-1]
     metrics_grid = [metrics(a1, a2, p) for p in grid]
     tprs, fprs = [g[3] for g in metrics_grid], [g[4] for g in metrics_grid]
-    
+
     fprs[0] = 0
     tprs[0] = 0
     fprs.append(1)
     tprs.append(1)
-    
+
     while not strictly_increasing(fprs):
         to_remove = []
         for j in range(1, len(fprs)):
-            if fprs[j] <= fprs[j-1]:
+            if fprs[j] <= fprs[j - 1]:
                 to_remove.append(j)
         fprs = [fprs[i] for i in range(len(fprs)) if i not in to_remove]
         tprs = [tprs[i] for i in range(len(tprs)) if i not in to_remove]
@@ -117,7 +119,9 @@ class DropMissing(TransformerMixin, BaseEstimator):
         self.cols_to_keep = missing[missing <= self.threshold].index
         return self
 
-    def transform(self, X: PandasDataFrame, y: Optional[Series] = None) -> PandasDataFrame:
+    def transform(
+        self, X: PandasDataFrame, y: Optional[Series] = None
+    ) -> PandasDataFrame:
         return X.drop(self.cols_to_drop.values, axis=1)
 
 
@@ -144,17 +148,22 @@ class Winsorizer(TransformerMixin, BaseEstimator):
 
         return self
 
-    def transform(self, X: Union[PandasDataFrame, ndarray], y: Optional[Series] = None) -> PandasDataFrame:
+    def transform(
+        self, X: Union[PandasDataFrame, ndarray], y: Optional[Series] = None
+    ) -> PandasDataFrame:
         X = pd.DataFrame(X)
         X_t = X.copy()
 
-        def trim(x: Union[float, int], low: Union[float, int], high: Union[float, int]) -> Union[float, int]:
+        def trim(
+            x: Union[float, int], low: Union[float, int], high: Union[float, int]
+        ) -> Union[float, int]:
             if pd.isna(x):
                 return x
             else:
                 x = low if x < low else x
                 x = high if x > high else x
                 return x
+
         trim_vec = np.vectorize(trim)
 
         for column, tup in self.threshold_dict_.items():
@@ -163,7 +172,7 @@ class Winsorizer(TransformerMixin, BaseEstimator):
         return X_t
 
 
-def load_model(model: str, out_path: Path, kind: str = 'tuned'):
+def load_model(model: str, out_path: Path, kind: str = "tuned"):
     """
     Loads trained ML model. If tuned, the best performing model will be loaded.
 
@@ -174,9 +183,9 @@ def load_model(model: str, out_path: Path, kind: str = 'tuned'):
 
     Returns: The loaded model.
     """
-    subdir = kind + '_models'
-    
-    full_path = out_path / subdir / model / 'model'
+    subdir = kind + "_models"
+
+    full_path = out_path / subdir / model / "model"
 
     if full_path.is_file():
         model_name = model
@@ -186,7 +195,7 @@ def load_model(model: str, out_path: Path, kind: str = 'tuned'):
             from autogluon.tabular import TabularPredictor  # type: ignore[import]
         except ModuleNotFoundError:
             raise ImportError(
-                "Specified model appears to be an automl model. Optional dependency autogluon is required for automl." 
+                "Specified model appears to be an automl model. Optional dependency autogluon is required for automl."
                 "Please install it (e.g. using pip). "
                 "Note that autogluon does not support python 3.9, so you must be using python 3.8 for this "
                 "to work."
@@ -194,13 +203,15 @@ def load_model(model: str, out_path: Path, kind: str = 'tuned'):
         model_name = model
         model = TabularPredictor.load(full_path)
     elif os.path.isfile(model):
-        model_name = model.split('/')[-1]
+        model_name = model.split("/")[-1]
         model = load(model)
         make_dir(out_path / subdir / model_name)
     else:
-        raise ValueError("The 'model' argument should be a path or a recognized model name")
+        raise ValueError(
+            "The 'model' argument should be a path or a recognized model name"
+        )
 
-    if kind == 'tuned':
+    if kind == "tuned":
         model = model.best_estimator_
 
     return model_name, model

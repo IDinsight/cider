@@ -3,15 +3,15 @@
 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
-# are met: 
+# are met:
 
 # 1. Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer. 
+# notice, this list of conditions and the following disclaimer.
 
 # 2. Redistributions in binary form must reproduce the above copyright
-# notice, this list of conditions and the following disclaimer in the 
+# notice, this list of conditions and the following disclaimer in the
 # documentation and/or other materials provided with the
-# distribution. 
+# distribution.
 
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -38,7 +38,7 @@ from pyspark.sql.functions import col, date_format, udf
 
 from pyspark.sql.types import StringType
 
-from helpers.utils import make_dir, save_df
+from deprecated.helpers.utils import make_dir, save_df
 
 from .datastore import DataStore, DataType
 
@@ -46,10 +46,10 @@ from .datastore import DataStore, DataType
 class Anonymizer:
 
     def __init__(
-        self, 
-        datastore: DataStore, 
+        self,
+        datastore: DataStore,
         dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, SparkDataFrame]]]] = None,
-        clean_folders = True, 
+        clean_folders = True,
         format_checker: Optional[Callable] = None):
         """
         Args:
@@ -58,7 +58,7 @@ class Anonymizer:
               ensure consistency when anonymizing identifiers; for example, the addition/omission of a
               leading zero will result in a completely different obfuscated value.
 
-        Returns: dict of dicts containing summary stats - {'CDR': {'Transactions': 2.3, ...}, ...}   
+        Returns: dict of dicts containing summary stats - {'CDR': {'Transactions': 2.3, ...}, ...}
         """
         self.ds=datastore
         self.cfg = datastore.cfg
@@ -76,7 +76,7 @@ class Anonymizer:
             )
 
         with open(salt_file_path, 'r') as saltfile:
-            salt = saltfile.read().strip() 
+            salt = saltfile.read().strip()
 
         self.encoder = Hashids(salt=salt, min_length=16)
         self.format_checker = format_checker
@@ -110,7 +110,7 @@ class Anonymizer:
     def anonymize_recharges(self):
         self._anonymize_dataset('recharges', 'caller_id')
 
-    
+
     def anonymize_features(self):
         self._anonymize_dataset('features', 'name')
 
@@ -125,25 +125,25 @@ class Anonymizer:
             dataset = getattr(self.ds, dataset_name)
         except AttributeError:
             raise ValueError(f'Dataset {dataset_name}. Perhaps no path is specified in config.')
-        
+
         if isinstance(column_names, str):
             column_names = [column_names]
-        
+
         encoder = self.encoder
         format_checker = self.format_checker
-        
+
         dataset_with_anonymized_columns = dataset
-        
+
         for column_name in column_names:
-            
+
             if column_name in dataset.columns:
-                
+
                 new_column = udf(
                     lambda raw: Anonymizer._check_identifier_format_and_hash(raw, encoder, format_checker), StringType()
                 )(dataset[column_name])
-                
+
                 dataset_with_anonymized_columns = dataset_with_anonymized_columns.withColumn(column_name, new_column)
-        
+
         # Make sure timestamp column is formatted properly to be read back in
         if 'timestamp' in dataset_with_anonymized_columns.columns:
             dataset_with_anonymized_columns = (
@@ -153,27 +153,27 @@ class Anonymizer:
         # TODO: Perhaps we should add suffixes or otherwise distinguish generated columns in Cider, to make this robust.
         if 'day' in dataset_with_anonymized_columns.columns:
             dataset_with_anonymized_columns = dataset_with_anonymized_columns.drop(col('day'))
-        
+
         save_df(dataset_with_anonymized_columns, self.outputs_path / 'outputs' / f'{dataset_name}.csv')
 
-        
+
     # this function is static to allow passing a reference to spark workers
     @staticmethod
     def _check_identifier_format_and_hash(raw, encoder, format_checker):
-        
+
         # missing values pass through
         if raw is None:
             return None
-        
+
         # input can be an actual integer
         elif isinstance(raw, Number):
-            
+
             # missing values pass through
             if isnan(raw):
                 return None
-            
+
             raw_int = int(raw)
-            
+
             # this will evaluate true on integers or integral floats (e.g. int(5.0) == 5.0 is true)
             if raw_int == raw:
                 raw_string = str(raw_int)
@@ -181,7 +181,7 @@ class Anonymizer:
                 raise ValueError(
                     f'Bad input to anonymization: {raw} is a non-integer number, which cannot represent a phone number.'
                 )
-            
+
         # input can be a string representing an integer
         else:
             raw_string = str(raw).strip('+')
