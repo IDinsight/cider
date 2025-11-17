@@ -32,13 +32,13 @@ jobs:
 
       - name: Run MyPy
         run: |
-          mypy cider/
+          mypy src/
 
       - name: Run ruff
         run: |
-          ruff check --exclude "notebooks/" --exclude "synthetic_data/" .
+          ruff check --exclude "deprecated/" --exclude "synthetic_data/" --exclude "old_notebooks/" .
 
       - name: Check code formatting with Black
         run: |
-          cd cider
+          cd src/
           black --check .
