@@ -38,7 +38,7 @@ from pyspark.sql.functions import col, date_format, udf
 
 from pyspark.sql.types import StringType
 
-from deprecated..helpers.utils import make_dir, save_df
+from deprecated.helpers.utils import make_dir, save_df
 
 from .datastore import DataStore, DataType
 
