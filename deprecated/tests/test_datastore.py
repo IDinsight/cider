@@ -202,7 +202,9 @@ class TestDatastoreClasses:
     def test_load_cdr_raises_from_csv(
         self, mocker: MockerFixture, ds: DataStore, dataframe, expected_error
     ):
-        mock_spark = mocker.patch("helpers.utils.SparkSession", autospec=True)
+        mock_spark = mocker.patch(
+            "deprecated.helpers.utils.SparkSession", autospec=True
+        )
         mock_read_csv = mock_spark.return_value.read.csv
         mock_read_csv.return_value = ds.spark.createDataFrame(dataframe)
         with pytest.raises(expected_error):
@@ -240,7 +242,9 @@ class TestDatastoreClasses:
     def test_load_antennas_raises_from_csv(
         self, mocker: MockerFixture, ds: DataStore, dataframe, expected_error
     ):
-        mock_spark = mocker.patch("helpers.utils.SparkSession", autospec=True)
+        mock_spark = mocker.patch(
+            "deprecated.helpers.utils.SparkSession", autospec=True
+        )
         mock_read_csv = mock_spark.return_value.read.csv
         mock_read_csv.return_value = ds.spark.createDataFrame(dataframe)
         with pytest.raises(expected_error):
@@ -400,7 +404,7 @@ class TestDatastoreClasses:
         self, mocker: MockerFixture, ds: Type[DataStore], dataframe, expected_error
     ) -> None:
         mock_geodataframe_reader = mocker.patch(
-            "helpers.io_utils.gpd.read_file", autospec=True
+            "deprecated.helpers.io_utils.gpd.read_file", autospec=True
         )
         mock_geodataframe_reader.return_value = GeoDataFrame(dataframe)
         with pytest.raises(expected_error):

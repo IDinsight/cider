@@ -29,9 +29,12 @@ import geopandas as gpd  # type: ignore[import]
 from geopandas import GeoDataFrame
 import geovoronoi  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
+import matplotlib.dates as mdates  # type: ignore[import]
 from matplotlib.pyplot import axis
 from pandas import DataFrame as PandasDataFrame
+from pyspark.sql import DataFrame as SparkDataFrame
 import seaborn as sns  # type: ignore[import]
+from typing import List
 
 sns.set(font_scale=2, style="white")
 
@@ -46,6 +49,64 @@ def clean_plot(ax: axis) -> None:
 
     ax.get_xaxis().tick_bottom()
     ax.get_yaxis().tick_left()
+
+
+def dates_xaxis(ax: axis, frequency: str) -> None:
+    """
+    Format datetime x axis using provided frequency
+
+    Args:
+        ax: axis to format
+        frequency: can be part of ['day', 'week', 'month', 'year']
+    """
+    if frequency == "day":
+        locator = mdates.DayLocator()
+        format = mdates.DateFormatter("%y-%m-%d")
+
+    elif frequency == "week":
+        locator = mdates.WeekdayLocator()
+        format = mdates.DateFormatter("%y-%m-%d")
+
+    elif frequency == "month":
+        locator = mdates.MonthLocator()
+        format = mdates.DateFormatter("%y-%m")
+
+    elif frequency == "year":
+        locator = mdates.YearLocator()
+        format = mdates.DateFormatter("%Y")
+
+    else:
+        raise ValueError("Invalid frequency for date axis.")
+
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(format)
+
+
+def distributions_plot(
+    df: SparkDataFrame, features: List[str], names: List[str], color: str = "indianred"
+) -> None:
+    """
+    Plot distribution of computed features, using Kernel Density Estimation
+
+    Args:
+        df: spark df with features
+        features: list of feature names to plot
+        names: plot titles
+        color: color palette to use
+    """
+    fig, ax = plt.subplots(1, len(features), figsize=(20, 5))
+    for a in range(len(features)):
+        sns.kdeplot(
+            df.select(features[a]).rdd.map(lambda r: r[0]).collect(),
+            ax=ax[a],
+            shade=True,
+            color=color,
+        )
+        if a == 0:
+            ax[a].set_ylabel("Density")
+        ax[a].set_title(names[a])
+        clean_plot(ax[a])
+    plt.tight_layout()
 
 
 def voronoi_tessellation(

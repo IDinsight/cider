@@ -3,15 +3,15 @@
 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
-# are met: 
+# are met:
 
 # 1. Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer. 
+# notice, this list of conditions and the following disclaimer.
 
 # 2. Redistributions in binary form must reproduce the above copyright
-# notice, this list of conditions and the following disclaimer in the 
+# notice, this list of conditions and the following disclaimer in the
 # documentation and/or other materials provided with the
-# distribution. 
+# distribution.
 
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -25,26 +25,38 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from pyquadkey2.quadkey import QuadKey  # type: ignore[import]
-from shapely.geometry import Polygon  # type: ignore[import]
+from functools import reduce
+from pyspark.sql import DataFrame as SparkDataFrame
+from pyspark.sql.functions import lit
+from typing import List
 
 
-def quadkey_to_polygon(x: str) -> Polygon:
+def generate_user_consent_list(
+    data: List[SparkDataFrame], user_id_col: str, opt_in: bool
+) -> SparkDataFrame:
     """
-    Generate polygons corresponding to 'quadkeys' from Microsoft Bing Maps Tile System
-    https://docs.microsoft.com/en-us/bingmaps/articles/bing-maps-tile-system
+    Generate table of user IDs and column specifying whether they have given their consent and should be included in
+    the analysis
 
     Args:
-        x: quadkey string
+        data: list of relevant datasets, e.g. CDRs and MoMo
+        user_id_col: column containing user ID
+        opt_in: whether the user's consent is set to true as default
 
-    Returns: shapely polygon object
+    Returns: spark df with user consent
+
     """
-    qk = QuadKey(x)
+    # Obtain all existing user IDs in the datasets
+    user_dfs = []
+    for df in data:
+        user_dfs.append(df.select(user_id_col).distinct())
+    users = reduce(SparkDataFrame.union, user_dfs)
+    users = users.select(user_id_col).distinct()
 
-    # Get lat/lon pairs of four corners
-    coords = [qk.to_geo(anchor=i) for i in range(4)]
-    coords[2], coords[3] = coords[3], coords[2]
-    coords = [(x[1], x[0]) for x in coords]
+    # Add default consent value
+    if opt_in:
+        users = users.withColumn("include", lit(True))
+    else:
+        users = users.withColumn("include", lit(False))
 
-    # Create polygon from points and return
-    return Polygon(coords)
+    return users

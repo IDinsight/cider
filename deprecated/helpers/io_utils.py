@@ -3,15 +3,15 @@
 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
-# are met: 
+# are met:
 
 # 1. Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer. 
+# notice, this list of conditions and the following disclaimer.
 
 # 2. Redistributions in binary form must reproduce the above copyright
-# notice, this list of conditions and the following disclaimer in the 
+# notice, this list of conditions and the following disclaimer in the
 # documentation and/or other materials provided with the
-# distribution. 
+# distribution.
 
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -25,9 +25,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, Optional, Union
 import re
 
 import geopandas as gpd  # type: ignore[import]
@@ -39,24 +38,20 @@ from pyspark.sql.functions import col, date_trunc, lit, to_timestamp
 from pyspark.sql.types import StringType
 
 
-from helpers.utils import get_spark_session
+from deprecated.helpers.utils import get_spark_session
+
 
 class IOUtils:
-    
-    def __init__(
-        self,
-        cfg: Box, 
-        data_format: Box
-    ):
+
+    def __init__(self, cfg: Box, data_format: Box):
         self.cfg = cfg
         self.data_format = data_format
         self.spark = get_spark_session(cfg)
 
-    
     def load_generic(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
+        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
     ) -> SparkDataFrame:
 
         # Load from file
@@ -64,14 +59,14 @@ class IOUtils:
             # Load data if in a single file
             if fpath.is_file():
 
-                if fpath.suffix == '.csv':
+                if fpath.suffix == ".csv":
                     df = self.spark.read.csv(str(fpath), header=True)
 
-                elif fpath.suffix == '.parquet':
+                elif fpath.suffix == ".parquet":
                     df = self.spark.read.parquet(str(fpath))
 
                 else:
-                    raise ValueError(f'File with unknown extension {fpath}.')
+                    raise ValueError(f"File with unknown extension {fpath}.")
 
             # Load data if in chunks
             else:
@@ -79,19 +74,21 @@ class IOUtils:
                     example_file = next(fpath.iterdir())
 
                 except StopIteration:
-                    raise ValueError(f'Directory {fpath} is empty.')
+                    raise ValueError(f"Directory {fpath} is empty.")
 
-                except FileNotFoundError as e:
+                except FileNotFoundError:
                     raise ValueError(f"Could not locate or read data for '{fpath}'")
 
-                if example_file.suffix == '.csv':
-                    df = self.spark.read.csv(str(fpath / '*.csv'), header=True)
+                if example_file.suffix == ".csv":
+                    df = self.spark.read.csv(str(fpath / "*.csv"), header=True)
 
-                elif example_file.suffix == '.parquet':
-                    df = self.spark.read.parquet(str(fpath / '*.parquet'), header=True)
+                elif example_file.suffix == ".parquet":
+                    df = self.spark.read.parquet(str(fpath / "*.parquet"), header=True)
 
                 else:
-                    raise ValueError(f'Found file with unknown extension {example_file}.')
+                    raise ValueError(
+                        f"Found file with unknown extension {example_file}."
+                    )
 
         # Load from pandas dataframe
         elif df is not None:
@@ -100,10 +97,9 @@ class IOUtils:
 
         # Issue with filename/dataframe provided
         else:
-            raise ValueError('No filename or pandas/spark dataframe provided.')
+            raise ValueError("No filename or pandas/spark dataframe provided.")
 
         return df
-
 
     def check_cols(
         self,
@@ -129,7 +125,6 @@ class IOUtils:
                 f"instead found {', '.join(columns_present)}"
             )
 
-
     def check_colvalues(
         self, df: SparkDataFrame, colname: str, colvalues: list, error_msg: str
     ) -> None:
@@ -142,9 +137,10 @@ class IOUtils:
             colvalues: requires values
             error_msg: error message to print if values don't match
         """
-        if set(df.select(colname).distinct().rdd.map(lambda r: r[0]).collect()).union(set(colvalues)) != set(colvalues):
+        if set(df.select(colname).distinct().rdd.map(lambda r: r[0]).collect()).union(
+            set(colvalues)
+        ) != set(colvalues):
             raise ValueError(error_msg)
-
 
     def standardize_col_names(
         self, df: SparkDataFrame, col_names: Dict[str, str]
@@ -172,78 +168,73 @@ class IOUtils:
         self,
         dataset_name: str,
         fpath: Optional[Path] = None,
-        provided_df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
+        provided_df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
     ) -> SparkDataFrame:
 
         dataset = self.load_generic(fpath, provided_df)
 
         if dataset_name in self.cfg.col_names:
-            dataset = self.standardize_col_names(dataset, self.cfg.col_names[dataset_name])
+            dataset = self.standardize_col_names(
+                dataset, self.cfg.col_names[dataset_name]
+            )
 
         self.check_cols(dataset, dataset_name)
 
-        return dataset    
-
+        return dataset
 
     def load_cdr(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
+        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
     ) -> SparkDataFrame:
         """
         Load CDR data into spark df
 
         Returns: spark df
         """
-        cdr = self.load_dataset(
-            dataset_name='cdr',
-            fpath=fpath,
-            provided_df=df
-        )
+        cdr = self.load_dataset(dataset_name="cdr", fpath=fpath, provided_df=df)
 
         # Check txn_type column
-        error_msg = 'CDR format incorrect. Column txn_type can only include call and text.'
-        self.check_colvalues(cdr, 'txn_type', ['call', 'text'], error_msg)
+        error_msg = (
+            "CDR format incorrect. Column txn_type can only include call and text."
+        )
+        self.check_colvalues(cdr, "txn_type", ["call", "text"], error_msg)
 
         # Clean international column
-        error_msg = 'CDR format incorrect. Column international can only include domestic, international, and other.'
-        self.check_colvalues(cdr, 'international', ['domestic', 'international', 'other'], error_msg)
+        error_msg = "CDR format incorrect. Column international can only include domestic, international, and other."
+        self.check_colvalues(
+            cdr, "international", ["domestic", "international", "other"], error_msg
+        )
 
         # if no recipient antennas are present, add a null column to enable the featurizer to work
         # TODO(leo): Consider cleaning up featurizer logic so this isn't needed.
-        if 'recipient_antenna' not in cdr.columns:
-            cdr = cdr.withColumn('recipient_antenna', lit(None).cast(StringType()))
+        if "recipient_antenna" not in cdr.columns:
+            cdr = cdr.withColumn("recipient_antenna", lit(None).cast(StringType()))
 
         # Clean timestamp column
-        cdr = self.clean_timestamp_and_add_day_column(cdr, 'timestamp')
+        cdr = self.clean_timestamp_and_add_day_column(cdr, "timestamp")
 
         # Clean duration column
-        cdr = cdr.withColumn('duration', col('duration').cast('float'))
+        cdr = cdr.withColumn("duration", col("duration").cast("float"))
 
         return cdr
 
-
-    def load_labels(
-        self,
-        fpath: Path = None
-    ) -> SparkDataFrame:
-
+    def load_labels(self, fpath: Path = None) -> SparkDataFrame:
         """
         Load labels on which to train ML model.
         """
 
-        labels = self.load_dataset('labels', fpath=fpath)
+        labels = self.load_dataset("labels", fpath=fpath)
 
-        if 'weight' not in labels.columns:
-            labels = labels.withColumn('weight', lit(1))
+        if "weight" not in labels.columns:
+            labels = labels.withColumn("weight", lit(1))
 
-        return labels.select(['name', 'label', 'weight'])
-
+        return labels.select(["name", "label", "weight"])
 
     def load_antennas(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
+        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
     ) -> SparkDataFrame:
         """
         Load antennas' dataset, and print % of antennas that are missing coordinates
@@ -251,24 +242,26 @@ class IOUtils:
         Returns: spark df
         """
 
-        antennas = self.load_dataset('antennas', fpath=fpath, provided_df = df)
+        antennas = self.load_dataset("antennas", fpath=fpath, provided_df=df)
 
-        antennas = antennas.withColumn('latitude', col('latitude').cast('float')).withColumn('longitude',
-                                                                                             col('longitude').cast(
-                                                                                                 'float'))
-        
-        number_missing_location = antennas.count() - antennas.select(['latitude', 'longitude']).na.drop().count()
-        
+        antennas = antennas.withColumn(
+            "latitude", col("latitude").cast("float")
+        ).withColumn("longitude", col("longitude").cast("float"))
+
+        number_missing_location = (
+            antennas.count()
+            - antennas.select(["latitude", "longitude"]).na.drop().count()
+        )
+
         if number_missing_location > 0:
-            print(f'Warning: {number_missing_location} antennas missing location')
+            print(f"Warning: {number_missing_location} antennas missing location")
 
         return antennas
-
 
     def load_recharges(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
+        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
     ) -> SparkDataFrame:
         """
         Load recharges dataset
@@ -276,43 +269,41 @@ class IOUtils:
         Returns: spark df
         """
 
-        recharges = self.load_dataset('recharges', fpath=fpath, provided_df=df)
+        recharges = self.load_dataset("recharges", fpath=fpath, provided_df=df)
 
         # Clean timestamp column
-        recharges = self.clean_timestamp_and_add_day_column(recharges, 'timestamp')
+        recharges = self.clean_timestamp_and_add_day_column(recharges, "timestamp")
 
         # Clean amount column
-        recharges = recharges.withColumn('amount', col('amount').cast('float'))
+        recharges = recharges.withColumn("amount", col("amount").cast("float"))
 
         return recharges
-
 
     def load_mobiledata(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
+        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
     ) -> SparkDataFrame:
         """
         Load mobile data dataset
 
         """
 
-        mobiledata = self.load_dataset('mobiledata', fpath=fpath, provided_df=df)
+        mobiledata = self.load_dataset("mobiledata", fpath=fpath, provided_df=df)
 
         # Clean timestamp column
-        mobiledata = self.clean_timestamp_and_add_day_column(mobiledata, 'timestamp')
+        mobiledata = self.clean_timestamp_and_add_day_column(mobiledata, "timestamp")
 
         # Clean duration column
-        mobiledata = mobiledata.withColumn('volume', col('volume').cast('float'))
+        mobiledata = mobiledata.withColumn("volume", col("volume").cast("float"))
 
         return mobiledata
-
 
     def load_mobilemoney(
         self,
         fpath: Optional[Path] = None,
         df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
-        verify: bool = True
+        verify: bool = True,
     ) -> SparkDataFrame:
         """
         Load mobile money dataset
@@ -321,26 +312,28 @@ class IOUtils:
         """
 
         # load data as generic df and standardize column_names
-        mobilemoney = self.load_dataset('mobilemoney', fpath=fpath, provided_df=df)
+        mobilemoney = self.load_dataset("mobilemoney", fpath=fpath, provided_df=df)
 
-         # Check txn_type column
-        txn_types = ['cashin', 'cashout', 'p2p', 'billpay', 'other']
-        error_msg = 'Mobile money format incorrect. Column txn_type can only include ' + ', '.join(txn_types)
-        self.check_colvalues(mobilemoney, 'txn_type', txn_types, error_msg)
+        # Check txn_type column
+        txn_types = ["cashin", "cashout", "p2p", "billpay", "other"]
+        error_msg = (
+            "Mobile money format incorrect. Column txn_type can only include "
+            + ", ".join(txn_types)
+        )
+        self.check_colvalues(mobilemoney, "txn_type", txn_types, error_msg)
 
         # Clean timestamp column
-        mobilemoney = self.clean_timestamp_and_add_day_column(mobilemoney, 'timestamp')
+        mobilemoney = self.clean_timestamp_and_add_day_column(mobilemoney, "timestamp")
 
         # Clean duration column
-        mobilemoney = mobilemoney.withColumn('amount', col('amount').cast('float'))
+        mobilemoney = mobilemoney.withColumn("amount", col("amount").cast("float"))
 
         # Clean balance columns
         for c in mobilemoney.columns:
-            if 'balance' in c:
-                mobilemoney = mobilemoney.withColumn(c, col(c).cast('float'))
+            if "balance" in c:
+                mobilemoney = mobilemoney.withColumn(c, col(c).cast("float"))
 
         return mobilemoney
-
 
     def load_shapefile(self, fpath: Path) -> GeoDataFrame:
         """
@@ -355,41 +348,32 @@ class IOUtils:
         shapefile = gpd.read_file(fpath)
 
         # Verify that columns are correct
-        self.check_cols(shapefile, 'shapefile')
+        self.check_cols(shapefile, "shapefile")
 
         # Verify that the geometry column has been loaded correctly
-        assert shapefile.dtypes['geometry'] == 'geometry'
+        assert shapefile.dtypes["geometry"] == "geometry"
 
-        shapefile['region'] = shapefile['region'].astype(str)
+        shapefile["region"] = shapefile["region"].astype(str)
 
         return shapefile
 
-
     def clean_timestamp_and_add_day_column(
-        self,
-        df: SparkDataFrame,
-        existing_timestamp_column_name: str
+        self, df: SparkDataFrame, existing_timestamp_column_name: str
     ):
 
         # Check the first row for time info, and assume the format is consistent
         existing_timestamp_sample = df.take(1)[0][existing_timestamp_column_name]
         timestamp_with_time_regex = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
 
-        has_time_info = bool(re.match(timestamp_with_time_regex, existing_timestamp_sample))
-
-        timestamp_format = (
-            'yyyy-MM-dd HH:mm:ss' if has_time_info else 'yyyy-MM-dd'
+        has_time_info = bool(
+            re.match(timestamp_with_time_regex, existing_timestamp_sample)
         )
 
-        return (
-            df
-            .withColumn(
-                'timestamp',
-                to_timestamp(existing_timestamp_column_name, timestamp_format)
-            )
-            .withColumn('day', date_trunc('day', col('timestamp')))
-        )
+        timestamp_format = "yyyy-MM-dd HH:mm:ss" if has_time_info else "yyyy-MM-dd"
 
+        return df.withColumn(
+            "timestamp", to_timestamp(existing_timestamp_column_name, timestamp_format)
+        ).withColumn("day", date_trunc("day", col("timestamp")))
 
     def load_phone_numbers_to_featurize(
         self,
@@ -398,16 +382,18 @@ class IOUtils:
     ) -> SparkDataFrame:
 
         phone_numbers_to_featurize = self.load_dataset(
-            'phone_numbers_to_featurize', fpath=fpath, provided_df=df
+            "phone_numbers_to_featurize", fpath=fpath, provided_df=df
         )
-        
-        distinct_count = phone_numbers_to_featurize.select(col('phone_number')).distinct().count()
+
+        distinct_count = (
+            phone_numbers_to_featurize.select(col("phone_number")).distinct().count()
+        )
         length = phone_numbers_to_featurize.count()
 
         if distinct_count != length:
             raise ValueError(
-                f'Duplicates found in list of phone numbers to featurize: there are {distinct_count} distinct values '
-                f'in a list of length {length}.'
+                f"Duplicates found in list of phone numbers to featurize: there are {distinct_count} distinct values "
+                f"in a list of length {length}."
             )
 
-        return phone_numbers_to_featurize.select('phone_number')
+        return phone_numbers_to_featurize.select("phone_number")

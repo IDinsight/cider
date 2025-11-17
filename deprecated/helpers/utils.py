@@ -3,15 +3,15 @@
 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
-# are met: 
+# are met:
 
 # 1. Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer. 
+# notice, this list of conditions and the following disclaimer.
 
 # 2. Redistributions in binary form must reproduce the above copyright
-# notice, this list of conditions and the following disclaimer in the 
+# notice, this list of conditions and the following disclaimer in the
 # documentation and/or other materials provided with the
-# distribution. 
+# distribution.
 
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -57,8 +57,8 @@ def get_spark_session(cfg: Box) -> SparkSession:
     # assuming the executable python binary is available via sys.
     python_executable = sys.executable
     if python_executable:
-        os.environ['PYSPARK_PYTHON'] = python_executable
-        os.environ['PYSPARK_DRIVER_PYTHON'] = python_executable
+        os.environ["PYSPARK_PYTHON"] = python_executable
+        os.environ["PYSPARK_DRIVER_PYTHON"] = python_executable
 
     # Recursively get all specified spark options
     def all_spark_options(config: Box):
@@ -68,63 +68,75 @@ def get_spark_session(cfg: Box) -> SparkSession:
 
             elif isinstance(value, Box):
                 for r_key, r_value in all_spark_options(value):
-                    yield f'{key}.{r_key}', r_value
-        
+                    yield f"{key}.{r_key}", r_value
+
             else:
                 yield key, value
 
     spark_session_builder = SparkSession.builder
     for spark_option, value in all_spark_options(cfg.spark):
-        spark_session_builder = spark_session_builder.config(f'spark.{spark_option}', value)
-    
+        spark_session_builder = spark_session_builder.config(
+            f"spark.{spark_option}", value
+        )
+
     # Cider config used to expect some Spark config specified a little differently - check for those entries
     # for backwards compatibility. Throw warnings because this config file can't be understood using Spark
     # documentation.
-    if 'app_name' in cfg.spark:
+    if "app_name" in cfg.spark:
         spark_session_builder = spark_session_builder.appName(cfg.spark.app_name)
-        warnings.warn('Please specify app name using spark: app: name rather than spark: app_name.')
-        
-    if ('files' in cfg.spark) and ('max_partition_bytes' in cfg.spark.files):
-        spark_session_builder = spark_session_builder.config("spark.sql.files.maxPartitionBytes", cfg.spark.files.max_partition_bytes) 
         warnings.warn(
-            'Please specify max bytes per partition using variable name(s) specified at '
-            'https://spark.apache.org/docs/latest/configuration.html#available-properties'
+            "Please specify app name using spark: app: name rather than spark: app_name."
         )
-        
-    if ('driver' in cfg.spark) and ('max_result_size' in cfg.spark.driver):
-        spark_session_builder = (
-            spark_session_builder.config("spark.driver.maxResultSize", cfg.spark.driver.max_result_size)
+
+    if ("files" in cfg.spark) and ("max_partition_bytes" in cfg.spark.files):
+        spark_session_builder = spark_session_builder.config(
+            "spark.sql.files.maxPartitionBytes", cfg.spark.files.max_partition_bytes
         )
         warnings.warn(
-            'Please specify max result size using variable name(s) specified at '
-            'https://spark.apache.org/docs/latest/configuration.html#available-properties'
+            "Please specify max bytes per partition using variable name(s) specified at "
+            "https://spark.apache.org/docs/latest/configuration.html#available-properties"
+        )
+
+    if ("driver" in cfg.spark) and ("max_result_size" in cfg.spark.driver):
+        spark_session_builder = spark_session_builder.config(
+            "spark.driver.maxResultSize", cfg.spark.driver.max_result_size
+        )
+        warnings.warn(
+            "Please specify max result size using variable name(s) specified at "
+            "https://spark.apache.org/docs/latest/configuration.html#available-properties"
         )
 
     # Create the Spark session
     spark = spark_session_builder.getOrCreate()
     spark.sparkContext.setLogLevel(cfg.spark.loglevel)
-    
+
     return spark
 
 
-def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',', single_file=True) -> None:
+def save_df(
+    df: SparkDataFrame, out_file_path: Path, sep: str = ",", single_file=True
+) -> None:
     """
     Saves spark/pandas dataframe to csv file
     """
-    if single_file: 
-        if isinstance(df, PandasDataFrame): # Pandas case
-            df.to_csv(str(out_file_path),  header="true", sep=sep)
-        elif isinstance(df, SparkDataFrame): # Spark case
+    if single_file:
+        if isinstance(df, PandasDataFrame):  # Pandas case
+            df.to_csv(str(out_file_path), header="true", sep=sep)
+        elif isinstance(df, SparkDataFrame):  # Spark case
             # we need to work around spark's automatic partitioning/naming
             # create a temporary folder in the directory where the output will ultimately live
-            temp_folder = out_file_path.parent / 'temp'
+            temp_folder = out_file_path.parent / "temp"
 
             # Ask spark to write output there. The repartition(1) call will tell spark to write a single file.
             # It will name it with some meaningless partition name, but we can find it easily bc it's the only
             # csv in the temp directory.
-            df.repartition(1).write.csv(path=str(temp_folder), mode="overwrite", header="true", sep=sep)
+            df.repartition(1).write.csv(
+                path=str(temp_folder), mode="overwrite", header="true", sep=sep
+            )
             spark_generated_file_name = [
-                fname for fname in os.listdir(temp_folder) if os.path.splitext(fname)[1] == '.csv'
+                fname
+                for fname in os.listdir(temp_folder)
+                if os.path.splitext(fname)[1] == ".csv"
             ][0]
 
             # move the file out of the temporary directory and rename it
@@ -137,9 +149,11 @@ def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',', single_file
     else:
         if isinstance(df, PandasDataFrame):  # Pandas case
             out_file_path.mkdir(parents=False, exist_ok=True)
-            df.to_csv(str(out_file_path / "0.csv"),  header="true", sep=sep)
-        elif isinstance(df, SparkDataFrame): # Spark case
-            df.write.csv(path=str(out_file_path), mode="overwrite", header="true", sep=sep)
+            df.to_csv(str(out_file_path / "0.csv"), header="true", sep=sep)
+        elif isinstance(df, SparkDataFrame):  # Spark case
+            df.write.csv(
+                path=str(out_file_path), mode="overwrite", header="true", sep=sep
+            )
         else:
             raise TypeError("Not a spark or pandas dataframe")
 
@@ -163,16 +177,17 @@ def save_parquet(df, out_directory_path: Path) -> None:
     Save spark or pandas dataframe to parquet file(s).
     """
     if isinstance(df, SparkDataFrame):
-        df.write.parquet(str(out_directory_path), mode='overwrite')
-    
+        df.write.parquet(str(out_directory_path), mode="overwrite")
+
     elif isinstance(df, PandasDataFrame):
-        
+
         out_directory_path.mkdir(parents=False, exist_ok=True)
-        df.to_parquet(out_directory_path / '0.parquet', index=False)
+        df.to_parquet(out_directory_path / "0.parquet", index=False)
 
 
-def filter_dates_dataframe(df: SparkDataFrame,
-                           start_date: str, end_date: str, colname: str = 'timestamp') -> SparkDataFrame:
+def filter_dates_dataframe(
+    df: SparkDataFrame, start_date: str, end_date: str, colname: str = "timestamp"
+) -> SparkDataFrame:
     """
     Filter dataframe rows whose timestamp is outside [start_date, end_date)
 
@@ -186,9 +201,11 @@ def filter_dates_dataframe(df: SparkDataFrame,
 
     """
     if colname not in df.columns:
-        raise ValueError('Cannot filter dates because missing timestamp column')
+        raise ValueError("Cannot filter dates because missing timestamp column")
     df = df.where(col(colname) >= pd.to_datetime(start_date))
-    df = df.where(col(colname) < pd.to_datetime(end_date) + pd.Timedelta(value=1, unit='days'))
+    df = df.where(
+        col(colname) < pd.to_datetime(end_date) + pd.Timedelta(value=1, unit="days")
+    )
     return df
 
 
@@ -215,14 +232,26 @@ def flatten_folder(args: Tuple) -> List[str]:
     unmatched: List[str] = []
     for p in ids:
         try:
-            fname = 'name=' + p
-            os.system('mv ' + recs_folder + '/' + fname + '/*.csv ' + recs_folder + '/' + p + '.csv')
+            fname = "name=" + p
+            os.system(
+                "mv "
+                + recs_folder
+                + "/"
+                + fname
+                + "/*.csv "
+                + recs_folder
+                + "/"
+                + p
+                + ".csv"
+            )
         except:
             unmatched = unmatched + [p]
     return unmatched
 
 
-def cdr_bandicoot_format(cdr: SparkDataFrame, antennas: SparkDataFrame, cfg: Box) -> SparkDataFrame:
+def cdr_bandicoot_format(
+    cdr: SparkDataFrame, antennas: SparkDataFrame, cfg: Box
+) -> SparkDataFrame:
     """
     Convert CDR df into format that can be used by bandicoot
 
@@ -236,42 +265,56 @@ def cdr_bandicoot_format(cdr: SparkDataFrame, antennas: SparkDataFrame, cfg: Box
 
     cols = list(cfg.keys())
 
-    outgoing = cdr.select(cols)\
-        .withColumnRenamed('txn_type', 'interaction')\
-        .withColumnRenamed('caller_id', 'name')\
-        .withColumnRenamed('recipient_id', 'correspondent_id')\
-        .withColumnRenamed('timestamp', 'datetime')\
-        .withColumnRenamed('duration', 'call_duration')\
-        .withColumnRenamed('caller_antenna', 'antenna_id')\
-        .withColumn('direction', lit('out'))\
-        .drop('recipient_antenna')
+    outgoing = (
+        cdr.select(cols)
+        .withColumnRenamed("txn_type", "interaction")
+        .withColumnRenamed("caller_id", "name")
+        .withColumnRenamed("recipient_id", "correspondent_id")
+        .withColumnRenamed("timestamp", "datetime")
+        .withColumnRenamed("duration", "call_duration")
+        .withColumnRenamed("caller_antenna", "antenna_id")
+        .withColumn("direction", lit("out"))
+        .drop("recipient_antenna")
+    )
 
-    incoming = cdr.select(cols)\
-        .withColumnRenamed('txn_type', 'interaction')\
-        .withColumnRenamed('recipient_id', 'name')\
-        .withColumnRenamed('caller_id', 'correspondent_id')\
-        .withColumnRenamed('timestamp', 'datetime')\
-        .withColumnRenamed('duration', 'call_duration')\
-        .withColumnRenamed('recipient_antenna', 'antenna_id')\
-        .withColumn('direction', lit('in'))\
-        .drop('caller_antenna')
+    incoming = (
+        cdr.select(cols)
+        .withColumnRenamed("txn_type", "interaction")
+        .withColumnRenamed("recipient_id", "name")
+        .withColumnRenamed("caller_id", "correspondent_id")
+        .withColumnRenamed("timestamp", "datetime")
+        .withColumnRenamed("duration", "call_duration")
+        .withColumnRenamed("recipient_antenna", "antenna_id")
+        .withColumn("direction", lit("in"))
+        .drop("caller_antenna")
+    )
 
-    cdr_bandicoot = outgoing.select(incoming.columns).union(incoming)\
-        .withColumn('call_duration', col('call_duration').cast(IntegerType()).cast(StringType()))\
-        .withColumn('datetime', date_format(col('datetime'), 'yyyy-MM-dd HH:mm:ss'))
-    
+    cdr_bandicoot = (
+        outgoing.select(incoming.columns)
+        .union(incoming)
+        .withColumn(
+            "call_duration", col("call_duration").cast(IntegerType()).cast(StringType())
+        )
+        .withColumn("datetime", date_format(col("datetime"), "yyyy-MM-dd HH:mm:ss"))
+    )
+
     if antennas is not None:
-        cdr_bandicoot = cdr_bandicoot.join(antennas.select(['antenna_id', 'latitude', 'longitude']),
-                                           on='antenna_id', how='left')
-    
-    cdr_bandicoot = cdr_bandicoot.na.fill('')
-    
+        cdr_bandicoot = cdr_bandicoot.join(
+            antennas.select(["antenna_id", "latitude", "longitude"]),
+            on="antenna_id",
+            how="left",
+        )
+
+    cdr_bandicoot = cdr_bandicoot.na.fill("")
+
     return cdr_bandicoot
 
 
-def long_join_pandas(dfs: List[PandasDataFrame], on: str,
-                     how: Union[Literal['left'], Literal['right'],
-                                Literal['outer'], Literal['inner']]) -> PandasDataFrame:
+def long_join_pandas(
+    dfs: List[PandasDataFrame],
+    on: str,
+    how: Union[Literal["left"], Literal["right"], Literal["outer"], Literal["inner"]],
+) -> PandasDataFrame:
     """
     Join list of pandas dfs
 
@@ -314,9 +357,11 @@ def strictly_increasing(L: List[float]) -> bool:
     return all(x < y for x, y in zip(L, L[1:]))
 
 
-def check_columns_exist(data: Union[PandasDataFrame, SparkDataFrame],
-                        columns: List[str],
-                        data_name: str = '') -> None:
+def check_columns_exist(
+    data: Union[PandasDataFrame, SparkDataFrame],
+    columns: List[str],
+    data_name: str = "",
+) -> None:
     """
     Check that list of columns is present in df
 
@@ -327,10 +372,15 @@ def check_columns_exist(data: Union[PandasDataFrame, SparkDataFrame],
     """
     for c in columns:
         if c not in data.columns:
-            raise ValueError('Column ' + c + ' not in data ' + data_name + '.')
+            raise ValueError("Column " + c + " not in data " + data_name + ".")
 
 
-def check_column_types(data: PandasDataFrame, continuous: List[str], categorical: List[str], binary: List[str]) -> None:
+def check_column_types(
+    data: PandasDataFrame,
+    continuous: List[str],
+    categorical: List[str],
+    binary: List[str],
+) -> None:
     """
     Try to identify issues with column types and values
 
@@ -343,14 +393,28 @@ def check_column_types(data: PandasDataFrame, continuous: List[str], categorical
     for c in continuous:
         n_unique = len(data[c].unique())
         if n_unique < 20:
-            print('Warning: Column ' + c + ' is of continuous type but has fewer than 20 (%i) unique values.' % n_unique)
+            print(
+                "Warning: Column "
+                + c
+                + " is of continuous type but has fewer than 20 (%i) unique values."
+                % n_unique
+            )
     for c in categorical:
         n_unique = len(data[c].unique())
         if n_unique > 20:
-            print('Warning: Column ' + c + ' is of categorical type but has more than 20 (%i) unique values.' % n_unique)
+            print(
+                "Warning: Column "
+                + c
+                + " is of categorical type but has more than 20 (%i) unique values."
+                % n_unique
+            )
     for c in binary:
-        if set(data[c].dropna().astype('int')) != {0, 1}:
-            raise ValueError('Column ' + c + ' is labeled as binary but does not contain only 0 and 1.')
+        if set(data[c].dropna().astype("int")) != {0, 1}:
+            raise ValueError(
+                "Column "
+                + c
+                + " is labeled as binary but does not contain only 0 and 1."
+            )
 
 
 # Source: https://stackoverflow.com/questions/38641691/weighted-correlation-coefficient-with-pandas
@@ -363,14 +427,18 @@ def weighted_cov(x: ndarray, y: ndarray, w: ndarray) -> float:
 
 
 def weighted_corr(x: ndarray, y: ndarray, w: ndarray) -> float:
-    return weighted_cov(x, y, w) / np.sqrt(weighted_cov(x, x, w) * weighted_cov(y, y, w))
+    return weighted_cov(x, y, w) / np.sqrt(
+        weighted_cov(x, x, w) * weighted_cov(y, y, w)
+    )
 
 
 def get_data_format():
 
-    data_format_path = importlib_resources_files('data_format') / 'data_format.yml'
+    data_format_path = (
+        importlib_resources_files("deprecated.data_format") / "data_format.yml"
+    )
 
-    with open(data_format_path, 'r') as data_format_file:
+    with open(data_format_path, "r") as data_format_file:
         data_format_dict = yaml_load(data_format_file, Loader=FullLoader)
 
     return Box(data_format_dict)
@@ -378,73 +446,81 @@ def get_data_format():
 
 def build_config_from_file(config_file_path_string: str) -> Box:
     """
-    Build the config Box (dictionary) from file and convert file paths to pathlib.Path objects, taking into 
+    Build the config Box (dictionary) from file and convert file paths to pathlib.Path objects, taking into
     account that some paths are expected to be defined relative to other paths, returning a Box containing
     file paths.
     """
-    
+
     def recursively_convert_to_path_and_resolve(dict_or_path_string, path_root):
-        
+
         if dict_or_path_string is None:
             return None
-        
+
         elif isinstance(dict_or_path_string, str):
-            
+
             path = Path(dict_or_path_string)
-            
+
             if os.path.isabs(path):
                 return path
-            
+
             return path_root / path
-        
+
         else:
-            
+
             new_dict = {}
             for key, value in dict_or_path_string.items():
-                
-                new_dict[key] = recursively_convert_to_path_and_resolve(value, path_root)
+
+                new_dict[key] = recursively_convert_to_path_and_resolve(
+                    value, path_root
+                )
 
             return new_dict
-                
-    with open(config_file_path_string, 'r') as config_file:
+
+    with open(config_file_path_string, "r") as config_file:
         config_dict = yaml_load(config_file, Loader=FullLoader)
 
-    input_path_dict = config_dict['path']
-    
+    input_path_dict = config_dict["path"]
+
     processed_path_dict = {}
-    
+
     # get the working directory path
-    working_directory_path = Path(input_path_dict['working']['directory_path'])
+    working_directory_path = Path(input_path_dict["working"]["directory_path"])
     if not os.path.isabs(working_directory_path):
         # raise ValueError(f'expected absolute path to working directory; got {working_directory_path} instead.')
         # This is only allowed because our tests rely on it. TODO: Change tests so this isn't necessary
         working_directory_path = Path(__file__).parent.parent / working_directory_path
-    
+
     # get the top level input data directory
-    input_data_directory_path = Path(input_path_dict['input_data']['directory_path'])
+    input_data_directory_path = Path(input_path_dict["input_data"]["directory_path"])
     if not os.path.isabs(input_data_directory_path):
         # raise ValueError(f'expected absolute path to input data directory; got {input_data_directory_path} instead.')
         # This is only allowed because our tests rely on it. TODO: Change tests so this isn't necessary
-        input_data_directory_path = Path(__file__).parent.parent / input_data_directory_path
+        input_data_directory_path = (
+            Path(__file__).parent.parent / input_data_directory_path
+        )
 
     # now recursively turn the rest of the path strings into Path objects
-    processed_path_dict['input_data'] = recursively_convert_to_path_and_resolve(input_path_dict['input_data'], input_data_directory_path)
-    processed_path_dict['working'] = recursively_convert_to_path_and_resolve(input_path_dict['working'], working_directory_path)
+    processed_path_dict["input_data"] = recursively_convert_to_path_and_resolve(
+        input_path_dict["input_data"], input_data_directory_path
+    )
+    processed_path_dict["working"] = recursively_convert_to_path_and_resolve(
+        input_path_dict["working"], working_directory_path
+    )
 
     # Correct the top-level directorypaths which should be interpreted differently: Otherwise the final leg of the directory
     # path will be repeated.
-    processed_path_dict['input_data']['directory_path'] = input_data_directory_path
-    processed_path_dict['working']['directory_path'] = working_directory_path
+    processed_path_dict["input_data"]["directory_path"] = input_data_directory_path
+    processed_path_dict["working"]["directory_path"] = working_directory_path
 
-    config_dict['path'] = processed_path_dict
-    
+    config_dict["path"] = processed_path_dict
+
     return Box(config_dict)
 
 
 def filter_by_phone_numbers_to_featurize(
     phone_numbers_to_featurize: Optional[SparkDataFrame],
     df,
-    phone_number_column_name: str
+    phone_number_column_name: str,
 ):
 
     if phone_numbers_to_featurize is None:
@@ -454,7 +530,7 @@ def filter_by_phone_numbers_to_featurize(
         return df.join(
             phone_numbers_to_featurize,
             df[phone_number_column_name] == phone_numbers_to_featurize.phone_number,
-            'inner'
+            "inner",
         ).drop(phone_numbers_to_featurize.phone_number)
 
     else:
@@ -464,50 +540,63 @@ def filter_by_phone_numbers_to_featurize(
         return df.merge(
             phone_numbers_to_featurize_pandas,
             left_on=phone_number_column_name,
-            right_on='phone_number',
-            how='inner'
-        ).drop(columns='phone_number')
+            right_on="phone_number",
+            how="inner",
+        ).drop(columns="phone_number")
 
 
 # For testing only. Compare two dataframes that are expected to be similar or identical. Obtain info
 # about matches/mismatches row- and column-wise.
-def testonly_compare_dataframes(left: pd.DataFrame, right: pd.DataFrame, left_on: str = 'name', right_on: str = 'name'):
+def testonly_compare_dataframes(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    left_on: str = "name",
+    right_on: str = "name",
+):
 
-    merged = left.merge(right, how='outer', left_on=left_on, right_on=right_on, indicator=True)
+    merged = left.merge(
+        right, how="outer", left_on=left_on, right_on=right_on, indicator=True
+    )
 
-    print(f'Merge indicator column: {merged._merge.value_counts()}')
+    print(f"Merge indicator column: {merged._merge.value_counts()}")
 
     columns_left = {c for c in left.columns if c != left_on}
     columns_right = {c for c in right.columns if c != right_on}
 
-    print(f'Columns left only: {columns_left - columns_right}')
-    print(f'Columns right only: {columns_right - columns_left}')
+    print(f"Columns left only: {columns_left - columns_right}")
+    print(f"Columns right only: {columns_right - columns_left}")
 
     mismatches = dict()
 
     for c in columns_left.intersection(columns_right):
 
-        c_left = f'{c}_x'
-        c_right = f'{c}_y'
+        c_left = f"{c}_x"
+        c_right = f"{c}_y"
 
         if merged[c_left].dtype != merged[c_right].dtype:
 
-            print(f'Column {c} has dtype {merged[c_left].dtype} on left, dtype {merged[c_right].dtype} on right.')
+            print(
+                f"Column {c} has dtype {merged[c_left].dtype} on left, dtype {merged[c_right].dtype} on right."
+            )
 
         if is_numeric_dtype(merged[c_left]) and is_numeric_dtype(merged[c_right]):
 
-            equalities = np.isclose(merged[c_left], merged[c_right], rtol=1e-05, equal_nan=True)
+            equalities = np.isclose(
+                merged[c_left], merged[c_right], rtol=1e-05, equal_nan=True
+            )
 
         else:
 
-            equalities = (merged[c_left] == merged[c_right])
+            equalities = merged[c_left] == merged[c_right]
 
         # If a row is only in one dataframe, we don't count it as a mismatch - we're reported row discrepancy
         # already and we're now looking for inequality.
-        equalities = equalities | (merged._merge != 'both')
+        equalities = equalities | (merged._merge != "both")
 
         mismatches[c] = len(equalities) - equalities.sum()
 
-    mismatches = pd.DataFrame.from_dict(data=mismatches, orient='index', columns=['mismatches'])
+    mismatches = pd.DataFrame.from_dict(
+        data=mismatches, orient="index", columns=["mismatches"]
+    )
 
     return merged.sort_index(axis=1), mismatches
