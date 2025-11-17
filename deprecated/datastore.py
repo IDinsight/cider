@@ -554,6 +554,7 @@ class DataStore(InitializerInterface):
 
         # Calculate timeseries of all transaction (voice + SMS together)
         timeseries = timeseries.groupby("day", as_index=False).agg("sum")
+        print(timeseries.head())
 
         # Calculate top and bottom acceptable values
         bottomrange = timeseries["count"].mean() - num_sds * timeseries["count"].std()
