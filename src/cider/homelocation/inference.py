@@ -25,7 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from .schemas import GetHomeLocationAlgorithm, GeographicUnit
+from cider.schemas import GetHomeLocationAlgorithm, GeographicUnit
 import pandas as pd
 import geopandas as gpd
 from pyspark.sql import SparkSession

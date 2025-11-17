@@ -55,6 +55,14 @@ class GeographicUnit(str, Enum):
     SHAPEFILE = "shapefile"
 
 
+class MobileMoneyTransactionType(str, Enum):
+    CASHIN = "cashin"
+    CASHOUT = "cashout"
+    P2P = "p2p"
+    BILLPAY = "billpay"
+    OTHER = "other"
+
+
 # Data schemas
 class CallDataRecordData(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -92,3 +100,58 @@ class AntennaData(BaseModel):
     ] = None
     latitude: Annotated[float, Field(description="Latitude of the antenna location")]
     longitude: Annotated[float, Field(description="Longitude of the antenna location")]
+
+
+class RechargeData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
+    timestamp: Annotated[datetime, Field(description="Timestamp of the recharge")]
+    amount: Annotated[
+        float, Field(description="Amount of the recharge in local currency")
+    ]
+
+
+class MobileDataUsageData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
+    timestamp: Annotated[datetime, Field(description="Timestamp of the data usage")]
+    volume: Annotated[float, Field(description="Volume of data used in MB")]
+
+
+class MobileMoneyTransactionData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
+    recipient_id: Annotated[
+        str, Field(description="Unique identifier for the recipient")
+    ]
+    timestamp: Annotated[datetime, Field(description="Timestamp of the call")]
+    transaction_type: Annotated[
+        MobileMoneyTransactionType,
+        Field(description="Type of transaction: text or call"),
+    ]
+    amount: Annotated[
+        float, Field(description="Amount of the transaction in local currency")
+    ]
+    caller_balance_before: Annotated[
+        float,
+        Field(description="Caller's balance before the transaction in local currency"),
+    ]
+    caller_balance_after: Annotated[
+        float,
+        Field(description="Caller's balance after the transaction in local currency"),
+    ]
+    recipient_balance_before: Annotated[
+        float,
+        Field(
+            description="Recipient's balance before the transaction in local currency"
+        ),
+    ]
+    recipient_balance_after: Annotated[
+        float,
+        Field(
+            description="Recipient's balance after the transaction in local currency"
+        ),
+    ]

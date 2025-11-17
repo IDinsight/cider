@@ -110,7 +110,7 @@ class DataStore(InitializerInterface):
         # Possible datasets to opt in/out of
         self.datasets = [
             "cdr",
-            "cdr_bandicoot",
+            # "cdr_bandicoot",
             "recharges",
             "mobiledata",
             "mobilemoney",
@@ -118,7 +118,7 @@ class DataStore(InitializerInterface):
         ]
         # featurizer/home location datasets
         self.cdr: SparkDataFrame
-        self.cdr_bandicoot: Optional[SparkDataFrame]
+        # self.cdr_bandicoot: Optional[SparkDataFrame]
         self.recharges: SparkDataFrame
         self.mobiledata: SparkDataFrame
         self.mobilemoney: SparkDataFrame
