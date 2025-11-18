@@ -45,9 +45,6 @@ def filter_to_datetime(
     Returns:
         df: pandas dataframe
     """
-    # Deduplicate entries
-    df = df.drop_duplicates()
-
     # Filter by date range
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df[
@@ -57,7 +54,7 @@ def filter_to_datetime(
 
 
 def get_spammers_from_cdr_data(
-    cdr_data: pd.DataFrame, threshold_of_calls_per_day: float = 100
+    cdr_data: pd.DataFrame, threshold_of_calls_per_day: float = 10
 ) -> list[str]:
     """
     Remove spammers from CDR data based on a threshold of calls per day.
@@ -68,37 +65,32 @@ def get_spammers_from_cdr_data(
         spammers: list of caller IDs identified as spammers
     """
     # Extract day from timestamp
-    cdr_data["day"] = cdr_data["timestamp"].dt.date
+    cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
 
     # Get number of transactions per day per transaction type and per caller
     grouped_cdr_data = (
-        (cdr_data.groupby(["caller_id", "transaction_type"]))
+        (cdr_data.groupby(["caller_id", "transaction_type"], as_index=False))
         .apply(
             lambda x: pd.Series(
                 {
-                    "caller_id": x.caller_id.iloc[0],
                     "count_transactions": x.shape[0],
                     "active_days": x["day"].nunique(),
                 }
-            )
+            ),
+            include_groups=False,
         )
         .reset_index(drop=True)
     )
-
-    grouped_cdr_data["avg_calls_per_day"] = (
+    grouped_cdr_data.loc[:, "avg_calls_per_day"] = (
         grouped_cdr_data["count_transactions"] / grouped_cdr_data["active_days"]
     )
 
     # Filter out callers with avg calls per day greater than threshold
-    spammer_caller_ids = (
-        grouped_cdr_data[
-            grouped_cdr_data["avg_calls_per_day"] > threshold_of_calls_per_day
-        ]
-        .caller_id.unique()
-        .tolist()
-    )
+    spammer_df = grouped_cdr_data.loc[
+        grouped_cdr_data["avg_calls_per_day"] >= threshold_of_calls_per_day
+    ]
 
-    return spammer_caller_ids
+    return spammer_df.caller_id.unique().tolist()
 
 
 def get_outlier_days_from_cdr_data(
@@ -118,11 +110,12 @@ def get_outlier_days_from_cdr_data(
         cdr_data: pandas dataframe with outlier days removed
     """
     # Add day column
-    cdr_data["day"] = cdr_data["timestamp"].dt.date
+    cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
 
     # Group data by caller_id and day to get daily transaction counts
     daily_counts = cdr_data.groupby(["day", "transaction_type"], as_index=False).apply(
-        lambda x: x.shape[0]
+        lambda x: x.shape[0],
+        include_groups=False,
     )
     daily_counts = daily_counts.rename(columns={None: "daily_count"})
 
@@ -160,7 +153,7 @@ def get_outlier_days_from_cdr_data(
     return outlier_days.unique().tolist()
 
 
-def get_standard_diagnostic_statistics(df: pd.DataFrame) -> DataDiagnosticStatistics:
+def get_static_diagnostic_statistics(df: pd.DataFrame) -> DataDiagnosticStatistics:
     """
     Get standrd diagnostic statistics for CDR, recharge, mobile money and mobile phone data.
 
@@ -178,3 +171,32 @@ def get_standard_diagnostic_statistics(df: pd.DataFrame) -> DataDiagnosticStatis
         "num_days": df["timestamp"].dt.date.nunique(),
     }
     return DataDiagnosticStatistics.model_validate(statistics)
+
+
+def get_timeseries_diagnostic_statistics(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Get timeseries diagnostic statistics for CDR, recharge, mobile money and mobile phone data.
+
+    Args:
+        df: pandas dataframe
+    Returns:
+        statistics: pandas dataframe with timeseries diagnostic statistics
+
+    """
+    df.loc[:, "day"] = df["timestamp"].dt.date
+    groupby_columns = ["day"]
+
+    if "transaction_type" in df.columns:
+        groupby_columns.append("transaction_type")
+
+    grouped_df = df.groupby(groupby_columns, as_index=False)
+    statistics = grouped_df.agg(
+        total_transactions=pd.NamedAgg(column="caller_id", aggfunc="count"),
+        num_unique_callers=pd.NamedAgg(column="caller_id", aggfunc="nunique"),
+        num_unique_recipients=(
+            pd.NamedAgg(column="recipient_id", aggfunc="nunique")
+            if "recipient_id" in df.columns
+            else pd.NamedAgg(column="caller_id", aggfunc=lambda x: 0)
+        ),
+    )
+    return statistics

@@ -10,7 +10,7 @@ from cider.featurizer.dependencies import (
     filter_to_datetime,
     get_spammers_from_cdr_data,
     get_outlier_days_from_cdr_data,
-    get_standard_diagnostic_statistics,
+    get_static_diagnostic_statistics,
 )
 
 
@@ -27,9 +27,8 @@ class TestFeaturizerInference:
     )
     def test_filter_to_datetime(self, dataset):
         df = pd.DataFrame(dataset)
-        df_with_duplicates = pd.concat([df, df.loc[:2]], ignore_index=True)
         filtered_data = filter_to_datetime(
-            df_with_duplicates,
+            df,
             filter_start_date=pd.to_datetime("2023-01-02"),
             filter_end_date=pd.to_datetime("2023-01-03"),
         )
@@ -98,7 +97,7 @@ class TestFeaturizerInference:
     )
     def test_get_standard_diagnostic_statistics(self, data):
         df = pd.DataFrame(data)
-        stats = get_standard_diagnostic_statistics(df)
+        stats = get_static_diagnostic_statistics(df)
 
         assert stats.total_transactions == len(df)
         assert stats.num_unique_callers == df["caller_id"].nunique()

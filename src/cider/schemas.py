@@ -113,8 +113,8 @@ class MobileMoneyTransactionData(BaseModel):
 
     caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
     recipient_id: Annotated[
-        str, Field(description="Unique identifier for the recipient")
-    ]
+        str | None, Field(description="Unique identifier for the recipient")
+    ] = None
     timestamp: Annotated[datetime, Field(description="Timestamp of the call")]
     transaction_type: Annotated[
         MobileMoneyTransactionType,
@@ -132,26 +132,51 @@ class MobileMoneyTransactionData(BaseModel):
         Field(description="Caller's balance after the transaction in local currency"),
     ]
     recipient_balance_before: Annotated[
-        float,
+        float | None,
         Field(
             description="Recipient's balance before the transaction in local currency"
         ),
-    ]
+    ] = None
     recipient_balance_after: Annotated[
-        float,
+        float | None,
         Field(
             description="Recipient's balance after the transaction in local currency"
         ),
-    ]
+    ] = None
 
     @model_validator(mode="after")
-    def check_balances(self) -> "MobileMoneyTransactionData":
+    def check_balance_and_recipient_info(self) -> "MobileMoneyTransactionData":
         if self.caller_balance_after != self.caller_balance_before - self.amount:
             raise ValueError(
-                "Caller balance after transaction does not match expected value."
+                f"Caller balance after transaction should be {self.caller_balance_before - self.amount}. Found {self.caller_balance_after} instead."
             )
-        if self.recipient_balance_after != self.recipient_balance_before + self.amount:
-            raise ValueError(
-                "Recipient balance after transaction does not match expected value."
-            )
+
+        # Recipient should be None for cashin and cashout transactions
+        if self.transaction_type in [
+            MobileMoneyTransactionType.CASHIN,
+            MobileMoneyTransactionType.CASHOUT,
+        ]:
+            if (
+                self.recipient_id is not None
+                or self.recipient_balance_after is not None
+                or self.recipient_balance_before is not None
+            ):
+                raise ValueError(
+                    f"Recipient ID and transaction balances should be None for transaction type {self.transaction_type}."
+                )
+
+        # For other transactions, recipient balances should match, if provided
+        if (
+            self.recipient_id
+            and self.recipient_balance_before
+            and self.recipient_balance_after is not None
+        ):
+            if (
+                self.recipient_balance_after
+                != self.recipient_balance_before + self.amount
+            ):
+                raise ValueError(
+                    "Recipient balance after transaction does not match expected value."
+                )
+
         return self
