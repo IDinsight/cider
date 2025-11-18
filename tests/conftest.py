@@ -33,12 +33,16 @@ CDR_DATA = {
     "transaction_type": ["text", "call"] * 3,
     "transaction_scope": ["domestic"] * 2 + ["international"] * 2 + ["other"] * 2,
 }
+
+
 ANTENNA_DATA = {
     "antenna_id": ["antenna_1", "antenna_2", "antenna_3"],
     "tower_id": ["antenna_1", "antenna_2", "antenna_3"],
     "latitude": [1.5001, 2.4987, 3.3467],
     "longitude": [1.8965, 2.4231, 3.0078],
 }
+
+
 SHAPEFILE_DATA = gpd.GeoDataFrame(
     {"region": ["region_1", "region_2", "region_3"]},
     geometry=[
@@ -53,6 +57,7 @@ SHAPEFILE_DATA = gpd.GeoDataFrame(
         ),
     ],
 )
+
 SHAPEFILE_DATA.set_crs("EPSG:4326", inplace=True)
 SHAPEFILE_DATA["geometry"] = SHAPEFILE_DATA.buffer(0)
 
@@ -64,6 +69,7 @@ HOME_LOCATION_GT = pd.DataFrame(
     }
 )
 
+
 POINTS_DATA = gpd.GeoDataFrame(
     {
         "ids": ["a", "b", "c"],
@@ -74,3 +80,55 @@ POINTS_DATA = gpd.GeoDataFrame(
 )
 POINTS_DATA = POINTS_DATA.set_crs(epsg=4326)
 POINTS_DATA = POINTS_DATA.to_crs(epsg=3857)
+
+
+RECHARGE_DATA = {
+    "caller_id": ["caller_1", "caller_2", "caller_3"] * 2,
+    "timestamp": pd.to_datetime(
+        [
+            "2023-01-01 9:00:00",
+            "2023-01-01 11:30:00",
+            "2023-01-02 08:00:00",
+            "2023-01-02 12:20:00",
+            "2023-01-03 07:30:00",
+            "2023-01-03 11:00:00",
+        ]
+    ),
+    "amount": [100.0, 150.0, 200.0] * 2,
+}
+
+MOBILE_DATA_USAGE_DATA = {
+    "caller_id": ["caller_1", "caller_2", "caller_3"] * 2,
+    "timestamp": pd.to_datetime(
+        [
+            "2023-01-01 07:10:00",
+            "2023-01-01 09:40:00",
+            "2023-01-02 11:56:00",
+            "2023-01-02 12:01:00",
+            "2023-01-03 08:45:00",
+            "2023-01-03 12:32:00",
+        ]
+    ),
+    "volume": [500.0, 750.0, 1000.0] * 2,
+}
+
+MOBILE_MONEY_TRANSACTION_DATA = {
+    "caller_id": ["caller_1", "caller_2", "caller_3"] * 2,
+    "recipient_id": ["recipient_1", "recipient_2", "recipient_3"] * 2,
+    "timestamp": pd.to_datetime(
+        [
+            "2023-01-01 05:36:00",
+            "2023-01-01 06:12:00",
+            "2023-01-02 03:56:00",
+            "2023-01-02 10:29:00",
+            "2023-01-03 08:44:00",
+            "2023-01-03 12:00:00",
+        ]
+    ),
+    "transaction_type": ["cashin", "cashout", "other", "p2p", "billpay", "other"],
+    "amount": [1000.0, 1500.0, 2000.0] * 2,
+    "caller_balance_before": [5000.0, 6000.0, 7000.0] * 2,
+    "caller_balance_after": [4000.0, 4500.0, 5000.0] * 2,
+    "recipient_balance_before": [2000.0, 2500.0, 3000.0] * 2,
+    "recipient_balance_after": [3000.0, 4000.0, 5000.0] * 2,
+}

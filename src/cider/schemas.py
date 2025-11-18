@@ -25,7 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import Annotated
 from datetime import datetime
 from enum import Enum
@@ -143,3 +143,15 @@ class MobileMoneyTransactionData(BaseModel):
             description="Recipient's balance after the transaction in local currency"
         ),
     ]
+
+    @model_validator(mode="after")
+    def check_balances(self) -> "MobileMoneyTransactionData":
+        if self.caller_balance_after != self.caller_balance_before - self.amount:
+            raise ValueError(
+                "Caller balance after transaction does not match expected value."
+            )
+        if self.recipient_balance_after != self.recipient_balance_before + self.amount:
+            raise ValueError(
+                "Recipient balance after transaction does not match expected value."
+            )
+        return self
