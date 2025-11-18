@@ -1,11 +1,7 @@
 import pytest
 import pandas as pd
-from cider.schemas import (
-    CallDataRecordData,
-    AntennaData,
-    GeographicUnit,
-    GetHomeLocationAlgorithm,
-)
+from cider.schemas import CallDataRecordData, AntennaData
+from cider.homelocation.schemas import GeographicUnit, GetHomeLocationAlgorithm
 from cider.homelocation.inference import (
     _prepare_home_location_data,
     _infer_home_locations,
@@ -159,26 +155,15 @@ class TestHomeLocationInference:
             )
 
     @pytest.mark.parametrize(
-        "create_cdr_data_schema,create_antenna_data_schema,algorithm,expected_output",
+        "create_cdr_data_schema,create_antenna_data_schema,algorithm",
         [
             (
                 "base",
                 "base",
                 GetHomeLocationAlgorithm.COUNT_TRANSACTIONS,
-                "transaction_count",
             ),
-            (
-                "base",
-                "base",
-                GetHomeLocationAlgorithm.COUNT_DAYS,
-                "transaction_days_count",
-            ),
-            (
-                "base",
-                "base",
-                GetHomeLocationAlgorithm.COUNT_MODAL_DAYS,
-                "transaction_modal_days_count",
-            ),
+            ("base", "base", GetHomeLocationAlgorithm.COUNT_DAYS),
+            ("base", "base", GetHomeLocationAlgorithm.COUNT_MODAL_DAYS),
         ],
         indirect=["create_cdr_data_schema", "create_antenna_data_schema"],
     )
@@ -188,7 +173,6 @@ class TestHomeLocationInference:
         create_antenna_data_schema,
         spark,
         algorithm,
-        expected_output,
     ):
         cdr_df = create_cdr_data_schema
         antenna_df = create_antenna_data_schema
@@ -210,9 +194,9 @@ class TestHomeLocationInference:
         assert set(inferred_locations.columns) == {
             "caller_id",
             "caller_antenna_id",
-            expected_output,
+            algorithm.value,
         }
-        assert inferred_locations[expected_output].tolist() == [1, 1, 1]
+        assert inferred_locations[algorithm.value].tolist() == [1, 1, 1]
 
         # Infer home locations with additional columns to keep
         inferred_locations = _infer_home_locations(
@@ -226,10 +210,10 @@ class TestHomeLocationInference:
         assert set(inferred_locations.columns) == {
             "caller_id",
             "caller_antenna_id",
-            expected_output,
+            algorithm.value,
             "transaction_type",
         }
-        assert inferred_locations[expected_output].tolist() == [1, 1, 1]
+        assert inferred_locations[algorithm.value].tolist() == [1, 1, 1]
 
         with pytest.raises(ValueError):
             inferred_locations = _infer_home_locations(
