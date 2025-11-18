@@ -11,6 +11,7 @@ from cider.featurizer.dependencies import (
     get_spammers_from_cdr_data,
     get_outlier_days_from_cdr_data,
     get_static_diagnostic_statistics,
+    get_timeseries_diagnostic_statistics,
 )
 
 
@@ -95,7 +96,7 @@ class TestFeaturizerInference:
             RECHARGE_DATA,
         ],
     )
-    def test_get_standard_diagnostic_statistics(self, data):
+    def test_get_static_diagnostic_statistics(self, data):
         df = pd.DataFrame(data)
         stats = get_static_diagnostic_statistics(df)
 
@@ -106,3 +107,34 @@ class TestFeaturizerInference:
             assert stats.num_unique_recipients == df["recipient_id"].nunique()
         else:
             assert stats.num_unique_recipients == 0
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            CDR_DATA,
+            MOBILE_DATA_USAGE_DATA,
+            MOBILE_MONEY_TRANSACTION_DATA,
+            RECHARGE_DATA,
+        ],
+    )
+    def test_get_timeseries_diagnostic_statistics(self, data):
+        df = pd.DataFrame(data)
+
+        static_data = get_static_diagnostic_statistics(df)
+
+        unique_days = df["timestamp"].dt.date.nunique()
+        timeseries_stats = get_timeseries_diagnostic_statistics(df)
+        assert set(timeseries_stats.columns).issubset(
+            {
+                "day",
+                "transaction_type",
+                "total_transactions",
+                "num_unique_callers",
+                "num_unique_recipients",
+            }
+        )
+        assert timeseries_stats.day.nunique() == unique_days
+        assert (
+            static_data.total_transactions
+            == timeseries_stats["total_transactions"].sum()
+        )
