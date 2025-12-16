@@ -40,23 +40,19 @@ from pyspark.sql.window import Window
 from .schemas import DirectionOfTransactionEnum
 
 
-def identify_daytime_and_weekend(
-    spark_df: SparkDataFrame,
-    day_start: int = 7,
-    day_end: int = 19,
-    weekend_days: list[int] = [1, 7],
+def identify_daytime(
+    spark_df: SparkDataFrame, day_start: int = 7, day_end: int = 19
 ) -> SparkDataFrame:
     """
-    Identify daytime and weekend records in the dataframe.
+    Identify daytime records in the dataframe.
 
     Args:
         df: Dataframe with a 'timestamp' column
         day_start: Hour to start daytime (inclusive)
         day_end: Hour to end daytime (exclusive)
-        weekend_days: List of integers representing weekend days (1=Sunday, 7=Saturday)
 
     Returns:
-        df: Dataframe with additional 'is_daytime' and 'is_weekend' columns
+        df: Dataframe with additional 'is_daytime' column
     """
     if "timestamp" not in spark_df.columns:
         raise ValueError("Dataframe must contain 'timestamp' column")
@@ -68,6 +64,25 @@ def identify_daytime_and_weekend(
             1,
         ).otherwise(0),
     )
+    return spark_df
+
+
+def identify_weekend(
+    spark_df: SparkDataFrame,
+    weekend_days: list[int] = [1, 7],
+):
+    """
+    Identify weekend records in the dataframe.
+
+    Args:
+        spark_df: Dataframe with a 'timestamp' column
+        weekend_days: List of integers representing weekend days (1=Sunday, 7=Saturday)
+    Returns:
+        df: Dataframe with additional 'is_weekend' column
+    """
+    if "timestamp" not in spark_df.columns:
+        raise ValueError("Dataframe must contain 'timestamp' column")
+
     spark_df = spark_df.withColumn(
         "is_weekend",
         when((dayofweek(col("timestamp"))).isin(weekend_days), 1).otherwise(0),
@@ -88,9 +103,11 @@ def swap_caller_and_recipient(
         df: Dataframe with swapped caller and recipient columns
     """
 
-    if "caller_id" not in spark_df.columns or "recipient_id" not in spark_df.columns:
+    if not set(
+        ["caller_id", "recipient_id", "recipient_antenna_id", "caller_antenna_id"]
+    ).issubset(set(spark_df.columns)):
         raise ValueError(
-            "Dataframe must contain 'caller_id' and 'recipient_id' columns"
+            "Dataframe must contain 'caller_id', 'recipient_id', 'caller_antenna_id', and 'recipient_antenna_id' columns"
         )
 
     # Add a direction_of_transaction column to indicate incoming/outgoing
@@ -196,8 +213,12 @@ def identify_and_tag_conversations(
             when(col("conversation").isNotNull(), col("conversation")).otherwise(
                 when(col("transaction_type") == "text", col("conversation_last"))
             ),
-            # Drop intermediate columns
         )
+        # Convert conversation back to timestamp
+        .withColumn("conversation", col("conversation").cast("timestamp"))
+        # Also convert timestamp back if needed
+        .withColumn("timestamp", col("timestamp").cast("timestamp"))
+        # Drop intermediate columns
         .drop(
             "prev_transaction_type", "prev_timestamp", "time_lapse", "conversation_last"
         )
@@ -252,6 +273,28 @@ def identify_active_days(spark_df: SparkDataFrame) -> SparkDataFrame:
         countDistinct(
             when((col("is_weekend") == 1) & (col("is_daytime") == 0), col("day"))
         ).alias("active_days_weekend_night"),
+    )
+
+    return out
+
+
+def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Identify number of unique contacts per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id' and 'recipient_id' columns
+
+    Returns:
+        df: Dataframe with additional 'num_unique_contacts' column
+    """
+    if not set(["caller_id", "recipient_id"]).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id' and 'recipient_id' columns"
+        )
+
+    out = spark_df.groupby("caller_id").agg(
+        countDistinct("recipient_id").alias("num_unique_contacts")
     )
 
     return out

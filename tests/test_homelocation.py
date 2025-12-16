@@ -39,7 +39,7 @@ from cider.homelocation.dependencies import (
     _deduplicate_points_within_buffer,
     get_voronoi_tessellation,
 )
-from .conftest import (
+from conftest import (
     CDR_DATA,
     ANTENNA_DATA,
     SHAPEFILE_DATA,
@@ -153,7 +153,7 @@ class TestHomeLocationInference:
         if geographic_unit == GeographicUnit.SHAPEFILE:
             prepared_data.drop(columns=["region", "index_right"], inplace=True)
         assert not prepared_data.empty
-        assert prepared_data.shape == (6, 10)
+        assert prepared_data.shape == (6, 11)
         assert set(prepared_data.columns).issubset(
             set(cdr_df.columns).union(set(antenna_df.columns)) - {geographic_unit}
         )

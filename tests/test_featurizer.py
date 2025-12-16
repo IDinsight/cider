@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from .conftest import (
+from conftest import (
     CDR_DATA,
     MOBILE_DATA_USAGE_DATA,
     MOBILE_MONEY_TRANSACTION_DATA,
@@ -41,9 +41,17 @@ from cider.featurizer.dependencies import (
     get_static_diagnostic_statistics,
     get_timeseries_diagnostic_statistics,
 )
+from cider.featurizer.inference import (
+    identify_daytime,
+    identify_weekend,
+    swap_caller_and_recipient,
+    identify_and_tag_conversations,
+    identify_active_days,
+    get_number_of_contacts_per_caller,
+)
 
 
-class TestFeaturizerInference:
+class TestFeaturizerDependencies:
 
     @pytest.mark.parametrize(
         "dataset",
@@ -166,3 +174,176 @@ class TestFeaturizerInference:
             static_data.total_transactions
             == timeseries_stats["total_transactions"].sum()
         )
+
+
+class TestFeaturizerInference:
+
+    def test_identify_daytime(self, spark):
+        spark_cdr_data = spark.createDataFrame(pd.DataFrame(CDR_DATA))
+        cdr_spark_with_daytime = identify_daytime(
+            spark_cdr_data, day_start=12, day_end=17
+        )
+        cdr_with_daytime = cdr_spark_with_daytime.toPandas()
+
+        assert "is_daytime" in cdr_with_daytime.columns
+        assert cdr_with_daytime.is_daytime.values.tolist() == [0, 1, 1, 1, 0, 0]
+
+        pd_cdr_data = pd.DataFrame(CDR_DATA).drop(columns=["timestamp"])
+        spark_cdr_data_no_timestamp = spark.createDataFrame(pd_cdr_data)
+        with pytest.raises(
+            ValueError, match="Dataframe must contain 'timestamp' column"
+        ):
+            identify_daytime(spark_cdr_data_no_timestamp)
+
+    def test_identify_weekend(self, spark):
+        spark_cdr_data = spark.createDataFrame(pd.DataFrame(CDR_DATA))
+        cdr_spark_with_weekend = identify_weekend(spark_cdr_data, weekend_days=[2, 6])
+        cdr_with_weekend = cdr_spark_with_weekend.toPandas()
+
+        assert "is_weekend" in cdr_with_weekend.columns
+        assert cdr_with_weekend.is_weekend.values.tolist() == [0, 1, 1, 0, 0, 1]
+
+        pd_cdr_data = pd.DataFrame(CDR_DATA).drop(columns=["timestamp"])
+        spark_cdr_data_no_timestamp = spark.createDataFrame(pd_cdr_data)
+        with pytest.raises(
+            ValueError, match="Dataframe must contain 'timestamp' column"
+        ):
+            identify_weekend(spark_cdr_data_no_timestamp)
+
+    def test_swap_caller_and_recipient(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_data)
+        pd_cdr_swapped = spark_cdr_swapped.toPandas()
+
+        assert len(pd_cdr_swapped) == 2 * len(pd_cdr_data)
+        assert set(pd_cdr_swapped.caller_id.unique()) == set(
+            pd_cdr_swapped.recipient_id.unique()
+        )
+        assert "direction_of_transaction" in pd_cdr_swapped.columns
+        assert set(pd_cdr_swapped.direction_of_transaction.unique()) == {
+            "outgoing",
+            "incoming",
+        }
+
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "caller_antenna_id",
+            "recipient_antenna_id",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_data.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'caller_antenna_id', and 'recipient_antenna_id' columns",
+            ):
+                swap_caller_and_recipient(spark_cdr_no_col)
+
+    def test_identify_and_tag_conversations(self, spark):
+        conversations = {
+            "caller_id": ["user_1"] * 6,
+            "recipient_id": ["user_2"] * 6,
+            "timestamp": pd.to_datetime(
+                [
+                    "2023-01-10 10:00:00",
+                    "2023-01-10 10:30:00",
+                    "2023-01-10 10:45:00",
+                    "2023-01-11 13:10:00",
+                    "2023-01-11 13:30:00",
+                    "2023-01-11 13:55:00",
+                ]
+            ),
+            "transaction_scope": ["domestic"] * 6,
+            "transaction_type": ["text", "text", "call", "text", "text", "text"],
+        }
+        pd_cdr_data = pd.concat(
+            [pd.DataFrame(CDR_DATA), pd.DataFrame(conversations)], ignore_index=True
+        )
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_tagged = identify_and_tag_conversations(spark_cdr_data, max_wait=3600)
+        pd_cdr_tagged = spark_cdr_tagged.toPandas()
+
+        assert "conversation" in pd_cdr_tagged.columns
+        convo_times = pd_cdr_tagged["conversation"].dropna().unique()
+        print(pd_cdr_tagged)
+        assert len(convo_times) == 5
+
+        for col in ["caller_id", "recipient_id", "timestamp", "transaction_type"]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_data.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'timestamp', and 'transaction_type' columns",
+            ):
+                identify_and_tag_conversations(spark_cdr_no_col)
+
+    def test_identify_active_days(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+        pd_cdr_data.loc[:, "day"] = pd_cdr_data["timestamp"].dt.date
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_with_conversations = identify_and_tag_conversations(
+            spark_cdr_with_weekend
+        )
+        spark_cdr_active_days = identify_active_days(spark_cdr_with_conversations)
+
+        pd_cdr_active_days = spark_cdr_active_days.toPandas()
+
+        assert set(
+            [
+                "active_days_all",
+                "active_days_weekday",
+                "active_days_weekend",
+                "active_days_day",
+                "active_days_night",
+                "active_days_weekday_day",
+                "active_days_weekday_night",
+                "active_days_weekend_day",
+                "active_days_weekend_night",
+            ]
+        ).issubset(set(pd_cdr_active_days.columns))
+        assert pd_cdr_active_days.shape == (3, 10)
+        assert pd_cdr_active_days.active_days_all.values.tolist() == [2, 2, 2]
+        assert pd_cdr_active_days.active_days_weekday.values.tolist() == [2, 1, 2]
+        assert pd_cdr_active_days.active_days_weekend.values.tolist() == [0, 1, 0]
+        assert pd_cdr_active_days.active_days_day.values.tolist() == [2, 2, 1]
+        assert pd_cdr_active_days.active_days_night.values.tolist() == [0, 0, 1]
+        assert pd_cdr_active_days.active_days_weekday_day.values.tolist() == [2, 1, 1]
+        assert pd_cdr_active_days.active_days_weekday_night.values.tolist() == [0, 0, 1]
+        assert pd_cdr_active_days.active_days_weekend_day.values.tolist() == [0, 1, 0]
+        assert pd_cdr_active_days.active_days_weekend_night.values.tolist() == [0, 0, 0]
+
+        pd_cdr_with_conversations = spark_cdr_with_conversations.toPandas()
+        for col in ["caller_id", "timestamp", "is_daytime", "is_weekend", "day"]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_conversations.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'timestamp', 'day', 'is_weekend', and 'is_daytime' columns",
+            ):
+                identify_active_days(spark_cdr_no_col)
+
+    def test_get_number_of_contacts_per_caller(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+
+        spark_cdr_num_contacts = get_number_of_contacts_per_caller(spark_cdr_data)
+
+        pd_cdr_num_contacts = spark_cdr_num_contacts.toPandas()
+
+        assert "num_unique_contacts" in pd_cdr_num_contacts.columns
+        assert pd_cdr_num_contacts.shape == (3, 2)
+        assert pd_cdr_num_contacts.num_unique_contacts.values.tolist() == [1, 1, 1]
+
+        for col in ["caller_id", "recipient_id"]:
+            spark_cdr_data_missing = spark.createDataFrame(
+                pd_cdr_data.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id' and 'recipient_id' columns",
+            ):
+                get_number_of_contacts_per_caller(spark_cdr_data_missing)
