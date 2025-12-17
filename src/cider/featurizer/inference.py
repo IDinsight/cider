@@ -37,17 +37,11 @@ from pyspark.sql.functions import (
     last,
     when,
     mean as pys_mean,
-    expr,
-    min as pys_min,
-    max as pys_max,
-    stddev_pop,
-    skewness,
-    kurtosis,
     sum as pys_sum,
 )
 from pyspark.sql.window import Window
 from .schemas import DirectionOfTransactionEnum, AllowedPivotColumnsEnum
-from .dependencies import _get_agg_columns
+from .dependencies import _get_agg_columns, _get_summary_stats_cols
 
 
 def identify_daytime(
@@ -342,27 +336,20 @@ def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
 
     filtered_df = spark_df.filter(col("transaction_type") == "call")
 
+    summary_stats_cols = _get_summary_stats_cols("duration")
     stats_df = filtered_df.groupby(
         "caller_id", "is_weekend", "is_daytime", "transaction_type"
-    ).agg(
-        pys_mean("duration").alias("avg_call_duration"),
-        expr("percentile(duration, 0.5)").alias("median_call_duration"),
-        pys_max("duration").alias("max_call_duration"),
-        pys_min("duration").alias("min_call_duration"),
-        stddev_pop("duration").alias("stddev_call_duration"),
-        skewness("duration").alias("skewness_call_duration"),
-        kurtosis("duration").alias("kurtosis_call_duration"),
-    )
+    ).agg(*summary_stats_cols)
 
     all_stats_aggs = []
     for stats_col in [
-        "avg_call_duration",
-        "median_call_duration",
-        "max_call_duration",
-        "min_call_duration",
-        "stddev_call_duration",
-        "skewness_call_duration",
-        "kurtosis_call_duration",
+        "mean_duration",
+        "median_duration",
+        "max_duration",
+        "min_duration",
+        "std_duration",
+        "skewness_duration",
+        "kurtosis_duration",
     ]:
         aggs = _get_agg_columns(
             stats_col,
@@ -525,3 +512,80 @@ def get_percentage_of_initiated_calls(
     )
 
     return interaction_df.groupby("caller_id").agg(*aggs)
+
+
+def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get text response time delay statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation' and 'direction_of_transaction' columns
+
+    Returns:
+        df: Dataframe with text response time delay statistics columns
+    """
+    if not set(
+        [
+            "caller_id",
+            "recipient_id",
+            "transaction_type",
+            "timestamp",
+            "is_weekend",
+            "is_daytime",
+            "conversation",
+            "direction_of_transaction",
+        ]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns"
+        )
+
+    # Filter to only text transactions
+    filtered_df = spark_df.filter(col("transaction_type") == "text")
+
+    window = Window.partitionBy("caller_id", "recipient_id", "conversation").orderBy(
+        "timestamp"
+    )
+
+    # Calculate time difference between consecutive texts
+    summary_stats_cols = _get_summary_stats_cols("response_time_delay")
+    response_time_df = (
+        filtered_df.withColumn(
+            "prev_direction", lag(col("direction_of_transaction")).over(window)
+        )
+        .withColumn("prev_timestamp", lag(col("timestamp")).over(window))
+        .withColumn(
+            "response_time_delay",
+            when(
+                (col("direction_of_transaction") == "outgoing")
+                & (col("prev_direction") == "incoming"),
+                col("timestamp").cast("long") - col("prev_timestamp").cast("long"),
+            ),
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime")
+        .agg(*summary_stats_cols)
+    )
+
+    all_aggs = []
+    for pivot_col in [
+        "mean_response_time_delay",
+        "median_response_time_delay",
+        "max_response_time_delay",
+        "min_response_time_delay",
+        "std_response_time_delay",
+        "skewness_response_time_delay",
+        "kurtosis_response_time_delay",
+    ]:
+        aggs = _get_agg_columns(
+            pivot_col,
+            cols_to_use_for_pivot=[
+                AllowedPivotColumnsEnum.IS_WEEKEND,
+                AllowedPivotColumnsEnum.IS_DAYTIME,
+            ],
+            agg_func=pys_mean,
+        )
+        all_aggs.extend(aggs)
+
+    stats_df = response_time_df.groupby("caller_id").agg(*all_aggs)
+
+    return stats_df

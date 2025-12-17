@@ -52,6 +52,7 @@ from cider.featurizer.inference import (
     get_percentage_of_nocturnal_interactions,
     get_percentage_of_initiated_conversations,
     get_percentage_of_initiated_calls,
+    get_text_response_time_delay_stats,
 )
 
 
@@ -389,34 +390,34 @@ class TestFeaturizerInference:
         assert set(
             [
                 "caller_id",
-                "weekday_nighttime_avg_call_duration",
-                "weekend_nighttime_avg_call_duration",
-                "weekday_daytime_avg_call_duration",
-                "weekend_daytime_avg_call_duration",
-                "weekday_nighttime_median_call_duration",
-                "weekend_nighttime_median_call_duration",
-                "weekday_daytime_median_call_duration",
-                "weekend_daytime_median_call_duration",
-                "weekday_nighttime_max_call_duration",
-                "weekend_nighttime_max_call_duration",
-                "weekday_daytime_max_call_duration",
-                "weekend_daytime_max_call_duration",
-                "weekday_nighttime_min_call_duration",
-                "weekend_nighttime_min_call_duration",
-                "weekday_daytime_min_call_duration",
-                "weekend_daytime_min_call_duration",
-                "weekday_nighttime_stddev_call_duration",
-                "weekend_nighttime_stddev_call_duration",
-                "weekday_daytime_stddev_call_duration",
-                "weekend_daytime_stddev_call_duration",
-                "weekday_nighttime_skewness_call_duration",
-                "weekend_nighttime_skewness_call_duration",
-                "weekday_daytime_skewness_call_duration",
-                "weekend_daytime_skewness_call_duration",
-                "weekday_nighttime_kurtosis_call_duration",
-                "weekend_nighttime_kurtosis_call_duration",
-                "weekday_daytime_kurtosis_call_duration",
-                "weekend_daytime_kurtosis_call_duration",
+                "weekday_nighttime_mean_duration",
+                "weekend_nighttime_mean_duration",
+                "weekday_daytime_mean_duration",
+                "weekend_daytime_mean_duration",
+                "weekday_nighttime_median_duration",
+                "weekend_nighttime_median_duration",
+                "weekday_daytime_median_duration",
+                "weekend_daytime_median_duration",
+                "weekday_nighttime_max_duration",
+                "weekend_nighttime_max_duration",
+                "weekday_daytime_max_duration",
+                "weekend_daytime_max_duration",
+                "weekday_nighttime_min_duration",
+                "weekend_nighttime_min_duration",
+                "weekday_daytime_min_duration",
+                "weekend_daytime_min_duration",
+                "weekday_nighttime_std_duration",
+                "weekend_nighttime_std_duration",
+                "weekday_daytime_std_duration",
+                "weekend_daytime_std_duration",
+                "weekday_nighttime_skewness_duration",
+                "weekend_nighttime_skewness_duration",
+                "weekday_daytime_skewness_duration",
+                "weekend_daytime_skewness_duration",
+                "weekday_nighttime_kurtosis_duration",
+                "weekend_nighttime_kurtosis_duration",
+                "weekday_daytime_kurtosis_duration",
+                "weekend_daytime_kurtosis_duration",
             ]
         ) == set(pd_cdr_call_stats.columns)
 
@@ -596,3 +597,88 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'is_weekend', 'is_daytime', 'direction_of_transaction' and 'transaction_type' columns",
             ):
                 get_percentage_of_initiated_calls(spark_cdr_no_col)
+
+    def test_get_text_response_time_delay_stats(self, spark):
+        conversations = {
+            "caller_id": ["user_1"] * 6,
+            "recipient_id": ["user_2"] * 6,
+            "caller_antenna_id": ["antenna_1"] * 6,
+            "recipient_antenna_id": ["antenna_2"] * 6,
+            "timestamp": pd.to_datetime(
+                [
+                    "2023-01-10 10:00:00",
+                    "2023-01-10 10:30:00",
+                    "2023-01-10 10:45:00",
+                    "2023-01-11 13:10:00",
+                    "2023-01-11 13:30:00",
+                    "2023-01-11 13:55:00",
+                ]
+            ),
+            "transaction_scope": ["domestic"] * 6,
+            "transaction_type": ["text", "text", "call", "text", "text", "text"],
+        }
+        pd_cdr_data = pd.DataFrame(conversations)
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_with_weekend)
+        spark_cdr_tagged = identify_and_tag_conversations(
+            spark_cdr_swapped, max_wait=3600
+        )
+        spark_cdr_text_response_time_delay = get_text_response_time_delay_stats(
+            spark_cdr_tagged
+        )
+        pd_cdr_text_response_time_delay = spark_cdr_text_response_time_delay.toPandas()
+        assert pd_cdr_text_response_time_delay.shape == (2, 29)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_mean_response_time_delay",
+                "weekend_nighttime_mean_response_time_delay",
+                "weekday_daytime_mean_response_time_delay",
+                "weekend_daytime_mean_response_time_delay",
+                "weekday_nighttime_median_response_time_delay",
+                "weekend_nighttime_median_response_time_delay",
+                "weekday_daytime_median_response_time_delay",
+                "weekend_daytime_median_response_time_delay",
+                "weekday_nighttime_max_response_time_delay",
+                "weekend_nighttime_max_response_time_delay",
+                "weekday_daytime_max_response_time_delay",
+                "weekend_daytime_max_response_time_delay",
+                "weekday_nighttime_min_response_time_delay",
+                "weekend_nighttime_min_response_time_delay",
+                "weekday_daytime_min_response_time_delay",
+                "weekend_daytime_min_response_time_delay",
+                "weekday_nighttime_std_response_time_delay",
+                "weekend_nighttime_std_response_time_delay",
+                "weekday_daytime_std_response_time_delay",
+                "weekend_daytime_std_response_time_delay",
+                "weekday_nighttime_skewness_response_time_delay",
+                "weekend_nighttime_skewness_response_time_delay",
+                "weekday_daytime_skewness_response_time_delay",
+                "weekend_daytime_skewness_response_time_delay",
+                "weekday_nighttime_kurtosis_response_time_delay",
+                "weekend_nighttime_kurtosis_response_time_delay",
+                "weekday_daytime_kurtosis_response_time_delay",
+                "weekend_daytime_kurtosis_response_time_delay",
+            ]
+        ) == set(pd_cdr_text_response_time_delay.columns)
+
+        pd_cdr_tagged = spark_cdr_tagged.toPandas()
+        print(pd_cdr_tagged.columns)
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "timestamp",
+            "transaction_type",
+            "conversation",
+            "is_weekend",
+            "is_daytime",
+            "direction_of_transaction",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_tagged.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns",
+            ):
+                get_text_response_time_delay_stats(spark_cdr_no_col)

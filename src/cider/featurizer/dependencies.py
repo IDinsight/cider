@@ -31,9 +31,38 @@ from typing import Any
 
 from .schemas import DataDiagnosticStatistics, AllowedPivotColumnsEnum
 import pyspark.sql.functions as F
-from pyspark.sql.functions import col, when, sum as pys_sum
+from pyspark.sql.functions import (
+    col,
+    when,
+    sum as pys_sum,
+    mean as pys_mean,
+    min as pys_min,
+    max as pys_max,
+    stddev_pop,
+    expr,
+    skewness,
+    kurtosis,
+)
 from cider.schemas import CallDataRecordTransactionType
 import numpy as np
+
+
+def _get_summary_stats_cols(col_name: str) -> list:
+    """
+    Get summary statistics columns for a given column name.
+
+    Args:
+        col_name: name of the column to get summary statistics for
+    """
+    return [
+        pys_mean(col_name).alias(f"mean_{col_name}"),
+        pys_min(col_name).alias(f"min_{col_name}"),
+        pys_max(col_name).alias(f"max_{col_name}"),
+        stddev_pop(col_name).alias(f"std_{col_name}"),
+        expr(f"percentile_approx({col_name}, 0.5)").alias(f"median_{col_name}"),
+        skewness(col_name).alias(f"skewness_{col_name}"),
+        kurtosis(col_name).alias(f"kurtosis_{col_name}"),
+    ]
 
 
 def _get_agg_columns(
