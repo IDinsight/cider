@@ -28,16 +28,26 @@
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (
     col,
+    count,
     countDistinct,
     hour,
     dayofweek,
-    when,
     lit,
     lag,
     last,
+    when,
+    mean as pys_mean,
+    expr,
+    min as pys_min,
+    max as pys_max,
+    stddev_pop,
+    skewness,
+    kurtosis,
+    sum as pys_sum,
 )
 from pyspark.sql.window import Window
-from .schemas import DirectionOfTransactionEnum
+from .schemas import DirectionOfTransactionEnum, AllowedPivotColumnsEnum
+from .dependencies import _get_agg_columns
 
 
 def identify_daytime(
@@ -283,18 +293,131 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
     Identify number of unique contacts per caller in the dataframe.
 
     Args:
-        spark_df: Dataframe with 'caller_id' and 'recipient_id' columns
+        spark_df: Dataframe with 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns
 
     Returns:
-        df: Dataframe with additional 'num_unique_contacts' column
+        df: Dataframe with num unique callers for each combination of is_weekend, is_daytime, and transaction_type
     """
-    if not set(["caller_id", "recipient_id"]).issubset(spark_df.columns):
+    if not set(
+        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
+    ).issubset(spark_df.columns):
         raise ValueError(
-            "Dataframe must contain 'caller_id' and 'recipient_id' columns"
+            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
         )
 
-    out = spark_df.groupby("caller_id").agg(
-        countDistinct("recipient_id").alias("num_unique_contacts")
+    # Count distinct contacts per caller, disaggregated by type and time of day
+    spark_df_unique_contacts = spark_df.groupby(
+        "caller_id", "is_weekend", "is_daytime", "transaction_type"
+    ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
+    aggs = _get_agg_columns(
+        "num_unique_contacts",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df = spark_df_unique_contacts.groupby("caller_id").agg(*aggs)
+
+    return pivoted_df
+
+
+def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get call duration statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns
+
+    Returns:
+        df: Dataframe with call duration statistics columns for each weekday/weekend and day/nighttime combination.
+    """
+    if not set(
+        ["caller_id", "transaction_type", "is_weekend", "is_daytime", "duration"]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'transaction_type', 'is_weekend', 'is_daytime', and 'duration' columns"
+        )
+
+    filtered_df = spark_df.filter(col("transaction_type") == "call")
+
+    stats_df = filtered_df.groupby(
+        "caller_id", "is_weekend", "is_daytime", "transaction_type"
+    ).agg(
+        pys_mean("duration").alias("avg_call_duration"),
+        expr("percentile(duration, 0.5)").alias("median_call_duration"),
+        pys_max("duration").alias("max_call_duration"),
+        pys_min("duration").alias("min_call_duration"),
+        stddev_pop("duration").alias("stddev_call_duration"),
+        skewness("duration").alias("skewness_call_duration"),
+        kurtosis("duration").alias("kurtosis_call_duration"),
     )
 
-    return out
+    all_stats_aggs = []
+    for stats_col in [
+        "avg_call_duration",
+        "median_call_duration",
+        "max_call_duration",
+        "min_call_duration",
+        "stddev_call_duration",
+        "skewness_call_duration",
+        "kurtosis_call_duration",
+    ]:
+        aggs = _get_agg_columns(
+            stats_col,
+            cols_to_use_for_pivot=[
+                AllowedPivotColumnsEnum.IS_WEEKEND,
+                AllowedPivotColumnsEnum.IS_DAYTIME,
+            ],
+            agg_func=pys_sum,
+        )
+        all_stats_aggs.extend(aggs)
+
+    pivoted_df = stats_df.groupby("caller_id").agg(*all_stats_aggs)
+
+    return pivoted_df
+
+
+def get_percentage_of_nocturnal_interactions(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get percentage of nocturnal interactions per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'is_daytime', 'transaction_type' columns
+
+    Returns:
+        df: Dataframe with percentage of nocturnal interactions column
+    """
+    if not set(["caller_id", "is_daytime", "is_weekend", "transaction_type"]).issubset(
+        spark_df.columns
+    ):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'is_daytime', 'is_weekend' and 'transaction_type' columns"
+        )
+
+    count_df = spark_df.groupby("caller_id").agg(
+        count("*").alias("total_interactions"),
+        pys_sum(when(col("is_daytime") == 0, 1).otherwise(0)).alias(
+            "nocturnal_interactions"
+        ),
+    )
+    count_df = count_df.withColumn(
+        "percentage_nocturnal_interactions",
+        (col("nocturnal_interactions") / col("total_interactions")) * 100,
+    ).select("caller_id", "percentage_nocturnal_interactions")
+
+    count_df = spark_df.join(count_df, on="caller_id", how="inner")
+    aggs = _get_agg_columns(
+        "percentage_nocturnal_interactions",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_mean,
+    )
+    pivoted_df = count_df.groupby("caller_id").agg(*aggs)
+
+    return pivoted_df

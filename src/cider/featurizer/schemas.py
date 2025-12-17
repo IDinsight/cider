@@ -59,3 +59,13 @@ class DataDiagnosticStatistics(BaseModel):
     num_days: Annotated[
         int, Field(description="Number of unique days covered in the dataset")
     ]
+
+
+class AllowedPivotColumnsEnum(str, Enum):
+    """
+    Enum for allowed pivot columns.
+    """
+
+    IS_WEEKEND = "is_weekend"
+    IS_DAYTIME = "is_daytime"
+    TRANSACTION_TYPE = "transaction_type"

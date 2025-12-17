@@ -48,6 +48,8 @@ from cider.featurizer.inference import (
     identify_and_tag_conversations,
     identify_active_days,
     get_number_of_contacts_per_caller,
+    get_call_duration_stats,
+    get_percentage_of_nocturnal_interactions,
 )
 
 
@@ -328,22 +330,168 @@ class TestFeaturizerInference:
 
     def test_get_number_of_contacts_per_caller(self, spark):
         pd_cdr_data = pd.DataFrame(CDR_DATA)
-        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
 
-        spark_cdr_num_contacts = get_number_of_contacts_per_caller(spark_cdr_data)
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+
+        spark_cdr_num_contacts = get_number_of_contacts_per_caller(
+            spark_cdr_with_weekend
+        )
 
         pd_cdr_num_contacts = spark_cdr_num_contacts.toPandas()
 
-        assert "num_unique_contacts" in pd_cdr_num_contacts.columns
-        assert pd_cdr_num_contacts.shape == (3, 2)
-        assert pd_cdr_num_contacts.num_unique_contacts.values.tolist() == [1, 1, 1]
+        assert pd_cdr_num_contacts.shape == (3, 9)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_text_num_unique_contacts",
+                "weekday_daytime_text_num_unique_contacts",
+                "weekday_nighttime_call_num_unique_contacts",
+                "weekday_daytime_call_num_unique_contacts",
+                "weekend_nighttime_text_num_unique_contacts",
+                "weekend_daytime_text_num_unique_contacts",
+                "weekend_nighttime_call_num_unique_contacts",
+                "weekend_daytime_call_num_unique_contacts",
+            ]
+        ) == set(pd_cdr_num_contacts.columns)
 
-        for col in ["caller_id", "recipient_id"]:
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+        ]:
             spark_cdr_data_missing = spark.createDataFrame(
-                pd_cdr_data.drop(columns=[col])
+                pd_cdr_with_weekend.drop(columns=[col])
             )
             with pytest.raises(
                 ValueError,
-                match="Dataframe must contain 'caller_id' and 'recipient_id' columns",
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns",
             ):
                 get_number_of_contacts_per_caller(spark_cdr_data_missing)
+
+    def test_get_call_duration_stats(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+
+        spark_cdr_call_stats = get_call_duration_stats(spark_cdr_with_weekend)
+
+        pd_cdr_call_stats = spark_cdr_call_stats.toPandas()
+
+        assert pd_cdr_call_stats.shape == (3, 29)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_avg_call_duration",
+                "weekend_nighttime_avg_call_duration",
+                "weekday_daytime_avg_call_duration",
+                "weekend_daytime_avg_call_duration",
+                "weekday_nighttime_median_call_duration",
+                "weekend_nighttime_median_call_duration",
+                "weekday_daytime_median_call_duration",
+                "weekend_daytime_median_call_duration",
+                "weekday_nighttime_max_call_duration",
+                "weekend_nighttime_max_call_duration",
+                "weekday_daytime_max_call_duration",
+                "weekend_daytime_max_call_duration",
+                "weekday_nighttime_min_call_duration",
+                "weekend_nighttime_min_call_duration",
+                "weekday_daytime_min_call_duration",
+                "weekend_daytime_min_call_duration",
+                "weekday_nighttime_stddev_call_duration",
+                "weekend_nighttime_stddev_call_duration",
+                "weekday_daytime_stddev_call_duration",
+                "weekend_daytime_stddev_call_duration",
+                "weekday_nighttime_skewness_call_duration",
+                "weekend_nighttime_skewness_call_duration",
+                "weekday_daytime_skewness_call_duration",
+                "weekend_daytime_skewness_call_duration",
+                "weekday_nighttime_kurtosis_call_duration",
+                "weekend_nighttime_kurtosis_call_duration",
+                "weekday_daytime_kurtosis_call_duration",
+                "weekend_daytime_kurtosis_call_duration",
+            ]
+        ) == set(pd_cdr_call_stats.columns)
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in [
+            "caller_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+            "duration",
+        ]:
+            spark_cdr_data_missing = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'transaction_type', 'is_weekend', 'is_daytime', and 'duration' columns",
+            ):
+                get_call_duration_stats(spark_cdr_data_missing)
+
+    def test_get_percentage_nocturnal_interactions(self, spark):
+        cdr_data = {
+            "caller_id": ["caller_1"] * 3 + ["caller_2"] * 3,
+            "recipient_id": ["recipient_1"] * 6,
+            "caller_antenna_id": ["antenna_1", "antenna_2"] * 3,
+            "recipient_antenna_id": ["antenna_3", "antenna_4"] * 3,
+            "timestamp": pd.to_datetime(
+                [
+                    "2023-01-01 10:00:00",
+                    "2023-01-02 12:00:00",
+                    "2023-01-02 14:00:00",
+                    "2023-01-04 22:00:00",
+                    "2023-01-05 18:00:00",
+                    "2023-01-06 21:00:00",
+                ]
+            ),
+            "duration": [300, 200, 400, 100, 250, 150],
+            "transaction_type": ["text", "call"] * 3,
+            "transaction_scope": ["domestic"] * 2
+            + ["international"] * 2
+            + ["other"] * 2,
+        }
+        pd_cdr_data = pd.DataFrame(cdr_data)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        print(spark_cdr_with_weekend.toPandas())
+
+        spark_cdr_nocturnal_calls = get_percentage_of_nocturnal_interactions(
+            spark_cdr_with_weekend
+        )
+
+        pd_cdr_nocturnal_calls = spark_cdr_nocturnal_calls.toPandas()
+
+        assert pd_cdr_nocturnal_calls.shape == (2, 5)
+        assert pd_cdr_nocturnal_calls.filter(like="nocturnal").sum(
+            1
+        ).tolist() == pytest.approx([66.67, 0.0], rel=1e-2)
+        assert set(
+            [
+                "caller_id",
+                "weekday_text_percentage_nocturnal_interactions",
+                "weekend_text_percentage_nocturnal_interactions",
+                "weekday_call_percentage_nocturnal_interactions",
+                "weekend_call_percentage_nocturnal_interactions",
+            ]
+        ) == set(pd_cdr_nocturnal_calls.columns)
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in ["caller_id", "is_daytime", "is_weekend", "transaction_type"]:
+            spark_cdr_data_missing = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'is_daytime', 'is_weekend' and 'transaction_type' columns",
+            ):
+                get_percentage_of_nocturnal_interactions(spark_cdr_data_missing)

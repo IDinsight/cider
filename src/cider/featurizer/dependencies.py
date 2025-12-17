@@ -27,8 +27,74 @@
 
 import pandas as pd
 from datetime import datetime
+from typing import Any
 
-from .schemas import DataDiagnosticStatistics
+from .schemas import DataDiagnosticStatistics, AllowedPivotColumnsEnum
+import pyspark.sql.functions as F
+from pyspark.sql.functions import col, when, sum as pys_sum
+from cider.schemas import CallDataRecordTransactionType
+import numpy as np
+
+
+def _get_agg_columns(
+    col_name: str,
+    cols_to_use_for_pivot: list[AllowedPivotColumnsEnum],
+    agg_func: F = pys_sum,
+) -> list:
+    """
+    Get aggregation columns for pivoting CDR features based on transaction type, is_weekend and is_daytime.
+
+    Args:
+        col_name: name of the column to aggregate
+        cols_to_use_for_pivot: list of columns to use for pivoting (e.g., ["is_weekend", "is_daytime", "transaction_type"])
+        agg_func: aggregation function to use (default: sum)
+    """
+
+    # Pivot the dataframe to have separate columns for each combination
+    is_weekday_values = [0, 1]
+    is_daytime_values = [0, 1]
+    transaction_types = [e.value for e in CallDataRecordTransactionType]
+
+    meshgrid_values: list[Any] = []
+    for pivot_col in cols_to_use_for_pivot:
+        if pivot_col == AllowedPivotColumnsEnum.IS_WEEKEND:
+            meshgrid_values.append(is_weekday_values)
+        if pivot_col == AllowedPivotColumnsEnum.IS_DAYTIME:
+            meshgrid_values.append(is_daytime_values)
+        if pivot_col == AllowedPivotColumnsEnum.TRANSACTION_TYPE:
+            meshgrid_values.append(transaction_types)
+
+    meshgrid = (
+        np.meshgrid(*meshgrid_values) if len(meshgrid_values) > 1 else meshgrid_values
+    )
+    meshgrid = np.array([m.flatten() for m in meshgrid]).T.squeeze()
+    aggs = []
+    for vals in meshgrid:
+        agg_name = ""
+        condition = True
+        for i, pivot_col in enumerate(cols_to_use_for_pivot):
+            if pivot_col == AllowedPivotColumnsEnum.IS_WEEKEND:
+                is_weekend_val = vals[i]
+                weekend_col = "weekend" if int(is_weekend_val) == 1 else "weekday"
+                agg_name += f"{weekend_col}_"
+                condition = condition & (col("is_weekend") == int(is_weekend_val))
+            if pivot_col == AllowedPivotColumnsEnum.IS_DAYTIME:
+                is_daytime_val = vals[i]
+                daytime_col = "daytime" if int(is_daytime_val) == 1 else "nighttime"
+                agg_name += f"{daytime_col}_"
+                condition = condition & (col("is_daytime") == int(is_daytime_val))
+            if pivot_col == AllowedPivotColumnsEnum.TRANSACTION_TYPE:
+                transaction_type_val = vals[i]
+                agg_name += f"{transaction_type_val}_"
+                condition = condition & (
+                    col("transaction_type") == transaction_type_val
+                )
+        agg_name += f"{col_name}"
+
+        aggs.append(
+            agg_func(when(condition, col(col_name)).otherwise(0)).alias(agg_name)
+        )
+    return aggs
 
 
 def filter_to_datetime(
