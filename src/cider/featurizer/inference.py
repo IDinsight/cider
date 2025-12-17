@@ -421,3 +421,57 @@ def get_percentage_of_nocturnal_interactions(
     pivoted_df = count_df.groupby("caller_id").agg(*aggs)
 
     return pivoted_df
+
+
+def get_percentage_of_initiated_conversations(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get percentage of initiated conversations per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'timestamp', 'conversation', 'is_weekend', 'direction_of_transaction' and 'is_daytime' columns
+
+    Returns:
+        df: Dataframe with percentage of initiated conversations column
+    """
+    if not set(
+        [
+            "caller_id",
+            "timestamp",
+            "conversation",
+            "is_weekend",
+            "is_daytime",
+            "direction_of_transaction",
+        ]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'timestamp', 'conversation', 'is_weekend', 'is_daytime' and 'direction_of_transaction' columns"
+        )
+
+    # TODO: this calculation is copied from deprecated.helpers.features.precent_initiated_conversations
+    # but it seems to calculate the average number of initiated conversations per daytime / weekend convo
+    # rather than the percentage. Keeping as is, but needs to be verified.
+    convo_df = (
+        spark_df.where(col("conversation") == col("timestamp"))
+        .withColumn(
+            "initiated_conversation",
+            when(col("direction_of_transaction") == "outgoing", 1).otherwise(0),
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime")
+        .agg(
+            pys_mean("initiated_conversation").alias(
+                "percentage_initiated_conversations"
+            )
+        )
+    )
+    aggs = _get_agg_columns(
+        "percentage_initiated_conversations",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+        agg_func=pys_mean,
+    )
+
+    return convo_df.groupby("caller_id").agg(*aggs)

@@ -50,6 +50,7 @@ from cider.featurizer.inference import (
     get_number_of_contacts_per_caller,
     get_call_duration_stats,
     get_percentage_of_nocturnal_interactions,
+    get_percentage_of_initiated_conversations,
 )
 
 
@@ -267,7 +268,6 @@ class TestFeaturizerInference:
 
         assert "conversation" in pd_cdr_tagged.columns
         convo_times = pd_cdr_tagged["conversation"].dropna().unique()
-        print(pd_cdr_tagged)
         assert len(convo_times) == 5
 
         for col in ["caller_id", "recipient_id", "timestamp", "transaction_type"]:
@@ -463,7 +463,6 @@ class TestFeaturizerInference:
         spark_cdr_data = spark.createDataFrame(pd_cdr_data)
         spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
         spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
-        print(spark_cdr_with_weekend.toPandas())
 
         spark_cdr_nocturnal_calls = get_percentage_of_nocturnal_interactions(
             spark_cdr_with_weekend
@@ -495,3 +494,62 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'is_daytime', 'is_weekend' and 'transaction_type' columns",
             ):
                 get_percentage_of_nocturnal_interactions(spark_cdr_data_missing)
+
+    def test_get_percentage_of_initiated_conversations(self, spark):
+        conversations = {
+            "caller_id": ["user_1"] * 6,
+            "recipient_id": ["user_2"] * 6,
+            "timestamp": pd.to_datetime(
+                [
+                    "2023-01-10 10:00:00",
+                    "2023-01-10 10:30:00",
+                    "2023-01-10 10:45:00",
+                    "2023-01-11 13:10:00",
+                    "2023-01-11 13:30:00",
+                    "2023-01-11 13:55:00",
+                ]
+            ),
+            "transaction_scope": ["domestic"] * 6,
+            "transaction_type": ["text", "text", "call", "text", "text", "text"],
+        }
+        pd_cdr_data = pd.concat(
+            [pd.DataFrame(CDR_DATA), pd.DataFrame(conversations)], ignore_index=True
+        )
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_with_weekend)
+        spark_cdr_tagged = identify_and_tag_conversations(
+            spark_cdr_swapped, max_wait=3600
+        )
+        spark_cdr_percentage_initiated = get_percentage_of_initiated_conversations(
+            spark_cdr_tagged
+        )
+        pd_cdr_percentage_initiated = spark_cdr_percentage_initiated.toPandas()
+
+        assert pd_cdr_percentage_initiated.shape == (6, 5)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_percentage_initiated_conversations",
+                "weekend_nighttime_percentage_initiated_conversations",
+                "weekday_daytime_percentage_initiated_conversations",
+                "weekend_daytime_percentage_initiated_conversations",
+            ]
+        ) == set(pd_cdr_percentage_initiated.columns)
+
+        pd_cdr_tagged = spark_cdr_tagged.toPandas()
+        for col in [
+            "caller_id",
+            "timestamp",
+            "conversation",
+            "is_weekend",
+            "is_daytime",
+            "direction_of_transaction",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_tagged.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'timestamp', 'conversation', 'is_weekend', 'is_daytime' and 'direction_of_transaction' columns",
+            ):
+                get_percentage_of_initiated_conversations(spark_cdr_no_col)
