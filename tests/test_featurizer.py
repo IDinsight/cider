@@ -51,6 +51,7 @@ from cider.featurizer.inference import (
     get_call_duration_stats,
     get_percentage_of_nocturnal_interactions,
     get_percentage_of_initiated_conversations,
+    get_percentage_of_initiated_calls,
 )
 
 
@@ -553,3 +554,45 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'timestamp', 'conversation', 'is_weekend', 'is_daytime' and 'direction_of_transaction' columns",
             ):
                 get_percentage_of_initiated_conversations(spark_cdr_no_col)
+
+    def test_get_percentage_of_initiated_calls(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_with_weekend)
+        spark_cdr_percentage_initiated = get_percentage_of_initiated_calls(
+            spark_cdr_swapped
+        )
+        pd_cdr_percentage_initiated = spark_cdr_percentage_initiated.toPandas()
+        assert pd_cdr_percentage_initiated.shape == (4, 5)
+        assert pd_cdr_percentage_initiated.filter(like="initiated").sum(1).tolist() == [
+            1.0,
+            1.0,
+            0.0,
+            1.0,
+        ]
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_percentage_initiated_calls",
+                "weekend_nighttime_percentage_initiated_calls",
+                "weekday_daytime_percentage_initiated_calls",
+                "weekend_daytime_percentage_initiated_calls",
+            ]
+        ) == set(pd_cdr_percentage_initiated.columns)
+
+        pd_cdr_swapped = spark_cdr_swapped.toPandas()
+        for col in [
+            "caller_id",
+            "is_weekend",
+            "is_daytime",
+            "direction_of_transaction",
+            "transaction_type",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_swapped.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'is_weekend', 'is_daytime', 'direction_of_transaction' and 'transaction_type' columns",
+            ):
+                get_percentage_of_initiated_calls(spark_cdr_no_col)
