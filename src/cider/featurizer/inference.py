@@ -38,6 +38,7 @@ from pyspark.sql.functions import (
     when,
     mean as pys_mean,
     sum as pys_sum,
+    max as pys_max,
 )
 from pyspark.sql.window import Window
 from .schemas import DirectionOfTransactionEnum, AllowedPivotColumnsEnum
@@ -587,5 +588,67 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
         all_aggs.extend(aggs)
 
     stats_df = response_time_df.groupby("caller_id").agg(*all_aggs)
+
+    return stats_df
+
+
+def get_text_response_rate(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get text response rate per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation' and 'direction_of_transaction' columns
+
+    Returns:
+        df: Dataframe with text response rate columns
+    """
+    if not set(
+        [
+            "caller_id",
+            "recipient_id",
+            "transaction_type",
+            "timestamp",
+            "is_weekend",
+            "is_daytime",
+            "conversation",
+            "direction_of_transaction",
+        ]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns"
+        )
+
+    # Filter to only text transactions
+    filtered_df = spark_df.filter(col("transaction_type") == "text")
+
+    window = Window.partitionBy("caller_id", "recipient_id", "conversation")
+
+    # Calculate response rate
+    response_rate_df = (
+        filtered_df.withColumn(
+            "direction",
+            when((col("direction_of_transaction") == "outgoing"), 1).otherwise(0),
+        )
+        .withColumn("responded", pys_max(col("direction")).over(window))
+        .where(
+            (col("conversation") == col("timestamp"))
+            & (col("direction_of_transaction") == "incoming")
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime")
+        .agg(pys_mean("responded").alias("text_response_rate"))
+    )
+
+    aggs = _get_agg_columns(
+        "text_response_rate",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+        agg_func=pys_mean,
+    )
+
+    stats_df = response_rate_df.groupby("caller_id").agg(*aggs)
 
     return stats_df

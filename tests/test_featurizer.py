@@ -53,6 +53,7 @@ from cider.featurizer.inference import (
     get_percentage_of_initiated_conversations,
     get_percentage_of_initiated_calls,
     get_text_response_time_delay_stats,
+    get_text_response_rate,
 )
 
 
@@ -665,7 +666,6 @@ class TestFeaturizerInference:
         ) == set(pd_cdr_text_response_time_delay.columns)
 
         pd_cdr_tagged = spark_cdr_tagged.toPandas()
-        print(pd_cdr_tagged.columns)
         for col in [
             "caller_id",
             "recipient_id",
@@ -682,3 +682,62 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns",
             ):
                 get_text_response_time_delay_stats(spark_cdr_no_col)
+
+    def test_get_text_response_rate(self, spark):
+        conversations = {
+            "caller_id": ["user_1"] * 3 + ["user_2"] * 3,
+            "recipient_id": ["user_2"] * 3 + ["user_1"] * 3,
+            "caller_antenna_id": ["antenna_1"] * 6,
+            "recipient_antenna_id": ["antenna_2"] * 6,
+            "timestamp": pd.to_datetime(
+                [
+                    "2023-01-10 10:00:00",
+                    "2023-01-10 10:30:00",
+                    "2023-01-10 10:45:00",
+                    "2023-01-11 13:10:00",
+                    "2023-01-11 13:30:00",
+                    "2023-01-11 13:55:00",
+                ]
+            ),
+            "transaction_scope": ["domestic"] * 6,
+            "transaction_type": ["text", "text", "call", "text", "text", "text"],
+        }
+        pd_cdr_data = pd.DataFrame(conversations)
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_with_weekend)
+        spark_cdr_tagged = identify_and_tag_conversations(
+            spark_cdr_swapped, max_wait=3600
+        )
+        spark_cdr_text_response_rate = get_text_response_rate(spark_cdr_tagged)
+        pd_cdr_text_response_rate = spark_cdr_text_response_rate.toPandas()
+
+        assert pd_cdr_text_response_rate.shape == (2, 5)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_text_response_rate",
+                "weekend_nighttime_text_response_rate",
+                "weekday_daytime_text_response_rate",
+                "weekend_daytime_text_response_rate",
+            ]
+        ) == set(pd_cdr_text_response_rate.columns)
+
+        pd_cdr_tagged = spark_cdr_tagged.toPandas()
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "timestamp",
+            "transaction_type",
+            "conversation",
+            "is_weekend",
+            "is_daytime",
+            "direction_of_transaction",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_tagged.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns",
+            ):
+                get_text_response_rate(spark_cdr_no_col)
