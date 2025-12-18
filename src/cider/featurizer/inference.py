@@ -40,7 +40,9 @@ from pyspark.sql.functions import (
     mean as pys_mean,
     sum as pys_sum,
     max as pys_max,
+    min as pys_min,
     log as pys_log,
+    row_number,
 )
 from pyspark.sql.window import Window
 from .schemas import DirectionOfTransactionEnum, AllowedPivotColumnsEnum
@@ -887,4 +889,84 @@ def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
         all_aggs.extend(aggs)
 
     pivoted_df = inter_event_df.groupby("caller_id").agg(*all_aggs)
+    return pivoted_df
+
+
+def get_pareto_principle_interaction_stats(
+    spark_df: SparkDataFrame,
+    percentage_threshold: float = 0.8,
+) -> SparkDataFrame:
+    """
+    The Pareto principle (80/20 rule) states that roughly 80% of effects come from 20% of causes.
+    This function calculates the fraction of recipients that account for `threshold` percentage of
+    a caller's interactions, disaggregated by weekday/weekend and daytime/nighttime interactions.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'transaction_type' columns
+        percentage_threshold: The percentage threshold to calculate the Pareto principle for (default is 0.8 for 80%)
+
+    Returns:
+        df: Dataframe with Pareto principle interaction statistics columns
+    """
+    if not set(
+        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
+        )
+
+    # Set up windows for calculations
+    window_1 = Window.partitionBy(
+        "caller_id", "is_weekend", "is_daytime", "transaction_type"
+    )
+    window_2 = Window.partitionBy(
+        "caller_id", "is_weekend", "is_daytime", "transaction_type"
+    ).orderBy(col("interaction_count").desc())
+    window_3 = Window.partitionBy(
+        "caller_id", "is_weekend", "is_daytime", "transaction_type"
+    ).orderBy("row_number")
+
+    # Calculate Pareto principle interaction stats
+    pareto_interaction_df = (
+        spark_df.groupby(
+            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
+        )
+        .agg(count(lit(0)).alias("interaction_count"))
+        .withColumn("total_interactions", pys_sum("interaction_count").over(window_1))
+        .withColumn("row_number", row_number().over(window_2))
+        .withColumn(
+            "cumulative_interactions", pys_sum("interaction_count").over(window_3)
+        )
+        .withColumn(
+            "cumulative_interaction_fraction",
+            col("cumulative_interactions") / col("total_interactions").cast("float"),
+        )
+        .withColumn(
+            "row_number",
+            when(
+                col("cumulative_interaction_fraction") >= percentage_threshold,
+                col("row_number"),
+            ),
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
+        .agg(
+            pys_min("row_number").alias("num_pareto_callers"),
+            countDistinct("recipient_id").alias("num_unique_recipients"),
+        )
+        .withColumn(
+            "pareto_principle_interaction_fraction",
+            col("num_pareto_callers") / col("num_unique_recipients").cast("float"),
+        )
+    )
+
+    aggs = _get_agg_columns(
+        "pareto_principle_interaction_fraction",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_mean,
+    )
+    pivoted_df = pareto_interaction_df.groupby("caller_id").agg(*aggs)
     return pivoted_df

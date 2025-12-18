@@ -58,6 +58,7 @@ from cider.featurizer.inference import (
     get_outgoing_interaction_fraction_stats,
     get_interaction_stats_per_caller,
     get_inter_event_time_stats,
+    get_pareto_principle_interaction_stats,
 )
 
 
@@ -1072,3 +1073,49 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'timestamp', 'is_weekend', 'is_daytime', and 'transaction_type' columns",
             ):
                 get_inter_event_time_stats(spark_cdr_no_col)
+
+    def test_get_pareto_principle_interaction_stats(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_pareto_stats = get_pareto_principle_interaction_stats(
+            spark_cdr_with_weekend
+        )
+        pd_cdr_pareto_stats = spark_pareto_stats.toPandas()
+
+        assert pd_cdr_pareto_stats.shape == (3, 9)
+        assert pd_cdr_pareto_stats.filter(
+            like="pareto_principle_interaction_fraction"
+        ).sum(1).tolist() == pytest.approx([1.0, 1.0, 1.0], rel=1e-2)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_text_pareto_principle_interaction_fraction",
+                "weekday_nighttime_call_pareto_principle_interaction_fraction",
+                "weekend_nighttime_text_pareto_principle_interaction_fraction",
+                "weekend_nighttime_call_pareto_principle_interaction_fraction",
+                "weekday_daytime_text_pareto_principle_interaction_fraction",
+                "weekday_daytime_call_pareto_principle_interaction_fraction",
+                "weekend_daytime_text_pareto_principle_interaction_fraction",
+                "weekend_daytime_call_pareto_principle_interaction_fraction",
+            ]
+        ) == set(pd_cdr_pareto_stats.columns)
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns",
+            ):
+                get_pareto_principle_interaction_stats(spark_cdr_no_col)
