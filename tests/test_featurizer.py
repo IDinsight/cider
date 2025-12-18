@@ -61,6 +61,7 @@ from cider.featurizer.inference import (
     get_pareto_principle_interaction_stats,
     get_pareto_principle_call_duration_stats,
     get_number_of_interactions_per_user,
+    get_number_of_antennas,
 )
 
 
@@ -1177,7 +1178,6 @@ class TestFeaturizerInference:
         )
         pd_cdr_number_of_interactions = spark_number_of_interactions.toPandas()
         assert pd_cdr_number_of_interactions.shape == (4, 17)
-        print(pd_cdr_number_of_interactions)
         assert pd_cdr_number_of_interactions.filter(like="num_interactions").sum(
             1
         ).tolist() == [1, 1, 1, 1]
@@ -1217,3 +1217,36 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'direction_of_transaction' columns",
             ):
                 get_number_of_interactions_per_user(spark_cdr_no_col)
+
+    def test_get_number_of_antennas(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_with_weekend)
+
+        spark_number_of_antennas = get_number_of_antennas(spark_cdr_swapped)
+        pd_cdr_number_of_antennas = spark_number_of_antennas.toPandas()
+        assert pd_cdr_number_of_antennas.shape == (4, 5)
+        assert pd_cdr_number_of_antennas.filter(like="num_unique_antennas").sum(
+            1
+        ).tolist() == [2, 1, 1, 1]
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_num_unique_antennas",
+                "weekend_nighttime_num_unique_antennas",
+                "weekday_daytime_num_unique_antennas",
+                "weekend_daytime_num_unique_antennas",
+            ]
+        ) == set(pd_cdr_number_of_antennas.columns)
+
+        pd_cdr_swapped = spark_cdr_swapped.toPandas()
+        for col in ["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_swapped.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns",
+            ):
+                get_number_of_antennas(spark_cdr_no_col)

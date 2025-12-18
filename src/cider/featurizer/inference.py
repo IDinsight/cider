@@ -1118,3 +1118,37 @@ def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFr
     pivoted_df = pivoted_df.groupby("caller_id").agg(*all_aggs)
 
     return pivoted_df
+
+
+def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get number of unique antennas per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'caller_antenna_id', 'is_daytime', 'is_weekend' columns
+
+    Returns:
+        df: Dataframe with number of unique antennas column
+    """
+    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
+        spark_df.columns
+    ):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
+        )
+
+    antenna_df = spark_df.groupby("caller_id", "is_daytime", "is_weekend").agg(
+        countDistinct("caller_antenna_id").alias("num_unique_antennas")
+    )
+
+    aggs = _get_agg_columns(
+        "num_unique_antennas",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+        agg_func=first,
+    )
+    antenna_df = antenna_df.groupby("caller_id").agg(*aggs)
+
+    return antenna_df
