@@ -39,6 +39,7 @@ from pyspark.sql.functions import (
     mean as pys_mean,
     sum as pys_sum,
     max as pys_max,
+    log as pys_log,
 )
 from pyspark.sql.window import Window
 from .schemas import DirectionOfTransactionEnum, AllowedPivotColumnsEnum
@@ -652,3 +653,53 @@ def get_text_response_rate(
     stats_df = response_rate_df.groupby("caller_id").agg(*aggs)
 
     return stats_df
+
+
+def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get entropy of interactions per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'transaction_type' columns
+
+    Returns:
+        df: Dataframe with entropy of interactions column
+    """
+    if not set(
+        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
+        )
+
+    window = Window.partitionBy(
+        "caller_id", "is_weekend", "is_daytime", "transaction_type"
+    )
+    entropy_df = (
+        spark_df.groupby(
+            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
+        )
+        .agg(count(lit(0)).alias("interaction_count"))
+        .withColumn("total_count", pys_sum("interaction_count").over(window))
+        .withColumn(
+            "probability", (col("interaction_count") / col("total_count").cast("float"))
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
+        .agg(
+            (-1 * pys_sum(col("probability") * pys_log(col("probability")))).alias(
+                "entropy_of_interactions"
+            )
+        )
+    )
+
+    aggs = _get_agg_columns(
+        "entropy_of_interactions",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
+    return pivoted_df

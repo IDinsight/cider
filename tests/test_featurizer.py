@@ -54,6 +54,7 @@ from cider.featurizer.inference import (
     get_percentage_of_initiated_calls,
     get_text_response_time_delay_stats,
     get_text_response_rate,
+    get_entropy_of_interactions_per_caller,
 )
 
 
@@ -741,3 +742,54 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns",
             ):
                 get_text_response_rate(spark_cdr_no_col)
+
+    def test_get_entropy_of_interactions_per_caller(self, spark):
+        cdr_data = CDR_DATA.copy()
+        cdr_data["caller_id"] = ["caller_1"] * 6
+        cdr_data["recipient_id"] = [
+            f"recipient_{i}" for i in range(len(cdr_data["caller_id"]))
+        ]
+        pd_cdr_data = pd.DataFrame(cdr_data)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_entropy_of_interactions = get_entropy_of_interactions_per_caller(
+            spark_cdr_with_weekend
+        )
+        pd_cdr_entropy_of_interactions = spark_entropy_of_interactions.toPandas()
+
+        assert pd_cdr_entropy_of_interactions.shape == (1, 9)
+        assert pd_cdr_entropy_of_interactions.filter(like="entropy").sum(1)[
+            0
+        ] == pytest.approx(1.386, rel=1e-3)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_text_entropy_of_interactions",
+                "weekday_nighttime_call_entropy_of_interactions",
+                "weekend_nighttime_text_entropy_of_interactions",
+                "weekend_nighttime_call_entropy_of_interactions",
+                "weekday_daytime_text_entropy_of_interactions",
+                "weekday_daytime_call_entropy_of_interactions",
+                "weekend_daytime_text_entropy_of_interactions",
+                "weekend_daytime_call_entropy_of_interactions",
+            ]
+        ) == set(pd_cdr_entropy_of_interactions.columns)
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns",
+            ):
+                get_entropy_of_interactions_per_caller(spark_cdr_no_col)
