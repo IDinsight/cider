@@ -60,6 +60,7 @@ from cider.featurizer.inference import (
     get_inter_event_time_stats,
     get_pareto_principle_interaction_stats,
     get_pareto_principle_call_duration_stats,
+    get_number_of_interactions_per_user,
 )
 
 
@@ -767,7 +768,7 @@ class TestFeaturizerInference:
         assert pd_cdr_entropy_of_interactions.shape == (1, 9)
         assert pd_cdr_entropy_of_interactions.filter(like="entropy").sum(1)[
             0
-        ] == pytest.approx(1.386, rel=1e-3)
+        ] == pytest.approx(0.0, rel=1e-3)
         assert set(
             [
                 "caller_id",
@@ -1162,3 +1163,57 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'duration' columns",
             ):
                 get_pareto_principle_call_duration_stats(spark_cdr_no_col)
+
+    def test_get_number_of_interactions_per_user(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_with_weekend)
+
+        spark_number_of_interactions = get_number_of_interactions_per_user(
+            spark_cdr_swapped
+        )
+        pd_cdr_number_of_interactions = spark_number_of_interactions.toPandas()
+        assert pd_cdr_number_of_interactions.shape == (4, 17)
+        print(pd_cdr_number_of_interactions)
+        assert pd_cdr_number_of_interactions.filter(like="num_interactions").sum(
+            1
+        ).tolist() == [1, 1, 1, 1]
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_text_incoming_num_interactions",
+                "weekday_nighttime_call_incoming_num_interactions",
+                "weekend_nighttime_text_incoming_num_interactions",
+                "weekend_nighttime_call_incoming_num_interactions",
+                "weekday_daytime_text_incoming_num_interactions",
+                "weekday_daytime_call_incoming_num_interactions",
+                "weekend_daytime_text_incoming_num_interactions",
+                "weekend_daytime_call_incoming_num_interactions",
+                "weekday_nighttime_text_outgoing_num_interactions",
+                "weekday_nighttime_call_outgoing_num_interactions",
+                "weekend_nighttime_text_outgoing_num_interactions",
+                "weekend_nighttime_call_outgoing_num_interactions",
+                "weekday_daytime_text_outgoing_num_interactions",
+                "weekday_daytime_call_outgoing_num_interactions",
+                "weekend_daytime_text_outgoing_num_interactions",
+                "weekend_daytime_call_outgoing_num_interactions",
+            ]
+        ) == set(pd_cdr_number_of_interactions.columns)
+
+        pd_cdr_swapped = spark_cdr_swapped.toPandas()
+        for col in [
+            "caller_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+            "direction_of_transaction",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_swapped.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'direction_of_transaction' columns",
+            ):
+                get_number_of_interactions_per_user(spark_cdr_no_col)

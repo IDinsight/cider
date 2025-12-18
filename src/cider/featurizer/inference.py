@@ -315,7 +315,7 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
             AllowedPivotColumnsEnum.IS_DAYTIME,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=pys_sum,
+        agg_func=first,
     )
     pivoted_df = spark_df_unique_contacts.groupby("caller_id").agg(*aggs)
 
@@ -362,7 +362,7 @@ def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
                 AllowedPivotColumnsEnum.IS_WEEKEND,
                 AllowedPivotColumnsEnum.IS_DAYTIME,
             ],
-            agg_func=pys_sum,
+            agg_func=first,
         )
         all_stats_aggs.extend(aggs)
 
@@ -408,7 +408,7 @@ def get_percentage_of_nocturnal_interactions(
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=pys_mean,
+        agg_func=first,
     )
     pivoted_df = count_df.groupby("caller_id").agg(*aggs)
 
@@ -463,7 +463,7 @@ def get_percentage_of_initiated_conversations(
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
         ],
-        agg_func=pys_mean,
+        agg_func=first,
     )
 
     return convo_df.groupby("caller_id").agg(*aggs)
@@ -513,7 +513,7 @@ def get_percentage_of_initiated_calls(
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
         ],
-        agg_func=pys_mean,
+        agg_func=first,
     )
 
     return interaction_df.groupby("caller_id").agg(*aggs)
@@ -587,7 +587,7 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
                 AllowedPivotColumnsEnum.IS_WEEKEND,
                 AllowedPivotColumnsEnum.IS_DAYTIME,
             ],
-            agg_func=pys_mean,
+            agg_func=first,
         )
         all_aggs.extend(aggs)
 
@@ -650,7 +650,7 @@ def get_text_response_rate(
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
         ],
-        agg_func=pys_mean,
+        agg_func=first,
     )
 
     stats_df = response_rate_df.groupby("caller_id").agg(*aggs)
@@ -702,7 +702,7 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
             AllowedPivotColumnsEnum.IS_DAYTIME,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=pys_sum,
+        agg_func=first,
     )
     pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
     return pivoted_df
@@ -787,7 +787,7 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
                 AllowedPivotColumnsEnum.IS_DAYTIME,
                 AllowedPivotColumnsEnum.TRANSACTION_TYPE,
             ],
-            agg_func=pys_mean,
+            agg_func=first,
         )
         all_aggs.extend(aggs)
 
@@ -833,7 +833,7 @@ def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame
                 AllowedPivotColumnsEnum.IS_DAYTIME,
                 AllowedPivotColumnsEnum.TRANSACTION_TYPE,
             ],
-            agg_func=pys_mean,
+            agg_func=first,
         )
         all_aggs.extend(aggs)
 
@@ -884,7 +884,7 @@ def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
                 AllowedPivotColumnsEnum.IS_DAYTIME,
                 AllowedPivotColumnsEnum.TRANSACTION_TYPE,
             ],
-            agg_func=pys_mean,
+            agg_func=first,
         )
         all_aggs.extend(aggs)
 
@@ -966,7 +966,7 @@ def get_pareto_principle_interaction_stats(
             AllowedPivotColumnsEnum.IS_DAYTIME,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=pys_mean,
+        agg_func=first,
     )
     pivoted_df = pareto_interaction_df.groupby("caller_id").agg(*aggs)
     return pivoted_df
@@ -1054,7 +1054,67 @@ def get_pareto_principle_call_duration_stats(
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
         ],
-        agg_func=pys_mean,
+        agg_func=first,
     )
     pivoted_df = pareto_call_duration_df.groupby("caller_id").agg(*aggs)
+    return pivoted_df
+
+
+def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get number of interactions per user in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'is_weekend', 'is_daytime', 'transaction_type', 'direction_of_transaction' columns
+
+    Returns:
+        df: Dataframe with number of interactions columns
+    """
+    if not set(
+        [
+            "caller_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+            "direction_of_transaction",
+        ]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'direction_of_transaction' columns"
+        )
+
+    count_df = spark_df.groupby(
+        "caller_id",
+        "is_weekend",
+        "is_daytime",
+        "transaction_type",
+        "direction_of_transaction",
+    ).agg(count(lit(0)).alias("num_interactions"))
+
+    pivoted_df = (
+        count_df.groupby("caller_id")
+        .pivot(
+            "direction_of_transaction", [e.value for e in DirectionOfTransactionEnum]
+        )
+        .agg(first("num_interactions"))
+    )
+    pivoted_df = pivoted_df.join(count_df, on="caller_id", how="inner")
+
+    all_aggs = []
+    for e in DirectionOfTransactionEnum:
+        pivoted_df = pivoted_df.withColumnRenamed(
+            e.value, f"{e.value}_num_interactions"
+        )
+        aggs = _get_agg_columns(
+            f"{e.value}_num_interactions",
+            cols_to_use_for_pivot=[
+                AllowedPivotColumnsEnum.IS_WEEKEND,
+                AllowedPivotColumnsEnum.IS_DAYTIME,
+                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+            ],
+            agg_func=first,
+        )
+        all_aggs.extend(aggs)
+    pivoted_df = pivoted_df.groupby("caller_id").agg(*all_aggs)
+
     return pivoted_df
