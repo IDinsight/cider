@@ -65,6 +65,7 @@ from cider.featurizer.inference import (
     get_number_of_antennas,
     get_entropy_of_antennas_per_caller,
     get_radius_of_gyration,
+    get_pareto_principle_antennas,
 )
 
 
@@ -1349,3 +1350,44 @@ class TestFeaturizerInference:
                 match="Antennas dataframe must contain 'caller_antenna_id', 'latitude', and 'longitude' columns",
             ):
                 get_radius_of_gyration(spark_cdr_with_weekend, spark_antenna_no_col)
+
+    def test_get_pareto_principle_antennas(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+
+        spark_pareto_antennas = get_pareto_principle_antennas(
+            spark_cdr_with_weekend, percentage_threshold=0.8
+        )
+        pd_cdr_pareto_antennas = spark_pareto_antennas.toPandas()
+        assert pd_cdr_pareto_antennas.shape == (3, 5)
+        assert pd_cdr_pareto_antennas.filter(like="num_pareto_principle_antennas").sum(
+            1
+        ).tolist() == [2, 1, 1]
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_num_pareto_principle_antennas",
+                "weekend_nighttime_num_pareto_principle_antennas",
+                "weekday_daytime_num_pareto_principle_antennas",
+                "weekend_daytime_num_pareto_principle_antennas",
+            ]
+        ) == set(pd_cdr_pareto_antennas.columns)
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in [
+            "caller_id",
+            "caller_antenna_id",
+            "is_weekend",
+            "is_daytime",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns",
+            ):
+                get_pareto_principle_antennas(spark_cdr_no_col)

@@ -1287,3 +1287,63 @@ def get_radius_of_gyration(
     )
     pivoted_df = radius_df.groupby("caller_id").agg(*aggs)
     return pivoted_df
+
+
+def get_pareto_principle_antennas(
+    spark_df: SparkDataFrame, percentage_threshold: float = 0.8
+) -> SparkDataFrame:
+    """
+    The Pareto principle (80/20 rule) states that roughly 80% of effects come from 20% of causes.
+    This function calculates the fraction of antennas that account for `threshold` percentage of
+    a caller's interactions, disaggregated by weekday/weekend and daytime/nighttime interactions.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'caller_antenna_id', 'is_daytime', 'is_weekend' columns
+        percentage_threshold: The percentage threshold to calculate the Pareto principle for (default is 0.8 for 80%)
+
+    Returns:
+        df: Dataframe with Pareto principle antennas column
+    """
+    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
+        spark_df.columns
+    ):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
+        )
+
+    # Configure windows for calculations
+    window_1 = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
+    window_2 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
+        col("interaction_count").desc()
+    )
+    window_3 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
+        "row_number"
+    )
+
+    antenna_df = (
+        spark_df.groupby("caller_id", "caller_antenna_id", "is_weekend", "is_daytime")
+        .agg(count(lit(0)).alias("interaction_count"))
+        .withColumn("total_count", pys_sum("interaction_count").over(window_1))
+        .withColumn("row_number", row_number().over(window_2))
+        .withColumn("cumsum_count", pys_sum("interaction_count").over(window_3))
+        .withColumn(
+            "fraction_count", col("cumsum_count") / col("total_count").cast("float")
+        )
+        .withColumn(
+            "row_number",
+            when(col("fraction_count") >= percentage_threshold, col("row_number")),
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime")
+        .agg(pys_min("row_number").alias("num_pareto_principle_antennas"))
+    )
+
+    aggs = _get_agg_columns(
+        "num_pareto_principle_antennas",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+        agg_func=first,
+    )
+    pivoted_df = antenna_df.groupby("caller_id").agg(*aggs)
+    return pivoted_df
