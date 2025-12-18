@@ -970,3 +970,91 @@ def get_pareto_principle_interaction_stats(
     )
     pivoted_df = pareto_interaction_df.groupby("caller_id").agg(*aggs)
     return pivoted_df
+
+
+def get_pareto_principle_call_duration_stats(
+    spark_df: SparkDataFrame,
+    percentage_threshold: float = 0.8,
+) -> SparkDataFrame:
+    """
+    The Pareto principle (80/20 rule) states that roughly 80% of effects come from 20% of causes.
+    This function calculates the fraction of recipients that account for `threshold` percentage of
+    a caller's call duration, disaggregated by weekday/weekend and daytime/nighttime interactions.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'transaction_type', 'duration' columns
+        percentage_threshold: The percentage threshold to calculate the Pareto principle for (default is 0.8 for 80%)
+
+    Returns:
+        df: Dataframe with Pareto principle call duration statistics columns
+    """
+    if not set(
+        [
+            "caller_id",
+            "recipient_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+            "duration",
+        ]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'duration' columns"
+        )
+
+    # Filter to only call transactions
+    filtered_df = spark_df.filter(col("transaction_type") == "call")
+
+    # Set up windows for calculations
+    window_1 = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
+    window_2 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
+        col("total_call_duration").desc()
+    )
+    window_3 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
+        "row_number"
+    )
+
+    # Calculate Pareto principle call duration stats
+    pareto_call_duration_df = (
+        filtered_df.groupby("caller_id", "recipient_id", "is_weekend", "is_daytime")
+        .agg(pys_sum("duration").alias("total_call_duration"))
+        .withColumn(
+            "overall_call_duration", pys_sum("total_call_duration").over(window_1)
+        )
+        .withColumn("row_number", row_number().over(window_2))
+        .withColumn(
+            "cumulative_call_duration", pys_sum("total_call_duration").over(window_3)
+        )
+        .withColumn(
+            "cumulative_call_fraction",
+            col("cumulative_call_duration")
+            / col("overall_call_duration").cast("float"),
+        )
+        .withColumn(
+            "row_number",
+            when(
+                col("cumulative_call_fraction") >= percentage_threshold,
+                col("row_number"),
+            ),
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime")
+        .agg(
+            pys_min("row_number").alias("num_pareto_callers"),
+            countDistinct("recipient_id").alias("num_unique_recipients"),
+        )
+        .withColumn(
+            "pareto_call_duration_fraction",
+            col("num_pareto_callers") / col("num_unique_recipients").cast("float"),
+        )
+    )
+
+    aggs = _get_agg_columns(
+        "pareto_call_duration_fraction",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+        agg_func=pys_mean,
+    )
+    pivoted_df = pareto_call_duration_df.groupby("caller_id").agg(*aggs)
+    return pivoted_df

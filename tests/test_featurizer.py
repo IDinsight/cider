@@ -59,6 +59,7 @@ from cider.featurizer.inference import (
     get_interaction_stats_per_caller,
     get_inter_event_time_stats,
     get_pareto_principle_interaction_stats,
+    get_pareto_principle_call_duration_stats,
 )
 
 
@@ -1119,3 +1120,45 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns",
             ):
                 get_pareto_principle_interaction_stats(spark_cdr_no_col)
+
+    def test_get_pareto_principle_call_duration_stats(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_pareto_call_stats = get_pareto_principle_call_duration_stats(
+            spark_cdr_with_weekend
+        )
+        pd_cdr_pareto_call_stats = spark_pareto_call_stats.toPandas()
+
+        assert pd_cdr_pareto_call_stats.shape == (3, 5)
+        assert pd_cdr_pareto_call_stats.filter(
+            like="pareto_call_duration_fraction"
+        ).sum(1).tolist() == pytest.approx([1.0, 1.0, 1.0], rel=1e-2)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_pareto_call_duration_fraction",
+                "weekend_nighttime_pareto_call_duration_fraction",
+                "weekday_daytime_pareto_call_duration_fraction",
+                "weekend_daytime_pareto_call_duration_fraction",
+            ]
+        ) == set(pd_cdr_pareto_call_stats.columns)
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'duration' columns",
+            ):
+                get_pareto_principle_call_duration_stats(spark_cdr_no_col)
