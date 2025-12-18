@@ -28,6 +28,7 @@
 import pandas as pd
 from datetime import datetime
 from typing import Any
+from pyspark.sql import DataFrame as SparkDataFrame
 
 from .schemas import DataDiagnosticStatistics, AllowedPivotColumnsEnum
 import pyspark.sql.functions as F
@@ -42,6 +43,12 @@ from pyspark.sql.functions import (
     expr,
     skewness,
     kurtosis,
+    radians,
+    sin as pys_sin,
+    cos as pys_cos,
+    lit,
+    asin,
+    sqrt,
 )
 from cider.schemas import CallDataRecordTransactionType
 import numpy as np
@@ -124,6 +131,38 @@ def _get_agg_columns(
             agg_func(when(condition, col(col_name)).otherwise(0)).alias(agg_name)
         )
     return aggs
+
+
+def _great_circle_distance(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Return the great-circle distance in kilometers between two points, in this case always the antenna handling an
+    interaction and the barycenter of all the user's interactions.
+    Used to compute the radius of gyration.
+    """
+    r = 6371.0  # Earth's radius
+
+    spark_df = (
+        spark_df.withColumn(
+            "delta_latitude",
+            radians(col("sum_latitude") - col("center_of_mass_latitude")),
+        )
+        .withColumn(
+            "delta_longitude",
+            radians(col("sum_longitude") - col("center_of_mass_longitude")),
+        )
+        .withColumn("latitude1", radians(col("sum_latitude")))
+        .withColumn("latitude2", radians(col("center_of_mass_latitude")))
+        .withColumn(
+            "azimuth",
+            pys_sin(col("delta_latitude") / 2) ** 2
+            + pys_cos("latitude1")
+            * pys_cos("latitude2")
+            * (pys_sin(col("delta_longitude") / 2) ** 2),
+        )
+        .withColumn("radius", 2 * lit(r) * asin(sqrt("azimuth")))
+    )
+
+    return spark_df
 
 
 def filter_to_datetime(

@@ -43,10 +43,15 @@ from pyspark.sql.functions import (
     min as pys_min,
     log as pys_log,
     row_number,
+    sqrt,
 )
 from pyspark.sql.window import Window
 from .schemas import DirectionOfTransactionEnum, AllowedPivotColumnsEnum
-from .dependencies import _get_agg_columns, _get_summary_stats_cols
+from .dependencies import (
+    _get_agg_columns,
+    _get_summary_stats_cols,
+    _great_circle_distance,
+)
 
 
 def identify_daytime(
@@ -1201,4 +1206,84 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
         agg_func=first,
     )
     pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
+    return pivoted_df
+
+
+def get_radius_of_gyration(
+    spark_df: SparkDataFrame, spark_antennas_df: SparkDataFrame
+) -> SparkDataFrame:
+    """
+    Returns the radius of gyration of users, disaggregated by type and time of day
+
+    References
+    ----------
+    .. [GON2008] Gonzalez, M. C., Hidalgo, C. A., & Barabasi, A. L. (2008).
+        Understanding individual human mobility patterns. Nature, 453(7196),
+        779-782.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'caller_antenna_id', 'is_weekend', 'is_daytime' columns
+        spark_antennas_df: Dataframe with 'caller_antenna_id', 'latitude', 'longitude' columns
+
+    Returns:
+        df: Dataframe with radius of gyration column
+    """
+    if not set(["caller_id", "caller_antenna_id", "is_weekend", "is_daytime"]).issubset(
+        spark_df.columns
+    ):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_weekend', and 'is_daytime' columns"
+        )
+
+    if not set(["caller_antenna_id", "latitude", "longitude"]).issubset(
+        spark_antennas_df.columns
+    ):
+        raise ValueError(
+            "Antennas dataframe must contain 'caller_antenna_id', 'latitude', and 'longitude' columns"
+        )
+
+    # Join antennas and CDR data
+    joined_df = spark_df.join(
+        spark_antennas_df, on="caller_antenna_id", how="inner"
+    ).dropna(subset=["latitude", "longitude"])
+
+    # Calculate center of mass coordinates
+    coordinates_df = (
+        joined_df.groupby("caller_id", "is_weekend", "is_daytime")
+        .agg(
+            pys_sum("latitude").alias("sum_latitude"),
+            pys_sum("longitude").alias("sum_longitude"),
+            count(lit(0)).alias("num_records"),
+        )
+        .withColumn(
+            "center_of_mass_latitude",
+            col("sum_latitude") / col("num_records").cast("float"),
+        )
+        .withColumn(
+            "center_of_mass_longitude",
+            col("sum_longitude") / col("num_records").cast("float"),
+        )
+        .drop("latitude", "longitude")
+    )
+
+    coordinates_df = joined_df.join(
+        coordinates_df,
+        on=["caller_id", "is_weekend", "is_daytime"],
+    )
+    distance_df = _great_circle_distance(coordinates_df)
+    radius_df = distance_df.groupby("caller_id", "is_weekend", "is_daytime").agg(
+        sqrt(pys_sum(col("radius") ** 2 / col("num_records").cast("float"))).alias(
+            "radius_of_gyration"
+        )
+    )
+
+    aggs = _get_agg_columns(
+        "radius_of_gyration",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+        agg_func=first,
+    )
+    pivoted_df = radius_df.groupby("caller_id").agg(*aggs)
     return pivoted_df
