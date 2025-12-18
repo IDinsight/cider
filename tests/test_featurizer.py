@@ -55,6 +55,7 @@ from cider.featurizer.inference import (
     get_text_response_time_delay_stats,
     get_text_response_rate,
     get_entropy_of_interactions_per_caller,
+    get_outgoing_interaction_fraction_stats,
 )
 
 
@@ -793,3 +794,96 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns",
             ):
                 get_entropy_of_interactions_per_caller(spark_cdr_no_col)
+
+    def test_get_fraction_of_outgoing_interactions_stats(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_with_weekend)
+        spark_fraction_of_outgoing_interactions = (
+            get_outgoing_interaction_fraction_stats(spark_cdr_swapped)
+        )
+        pd_cdr_fraction_of_outgoing_interactions = (
+            spark_fraction_of_outgoing_interactions.toPandas()
+        )
+
+        assert pd_cdr_fraction_of_outgoing_interactions.shape == (4, 57)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_text_mean_fraction_of_outgoing_calls",
+                "weekday_nighttime_call_mean_fraction_of_outgoing_calls",
+                "weekend_nighttime_text_mean_fraction_of_outgoing_calls",
+                "weekend_nighttime_call_mean_fraction_of_outgoing_calls",
+                "weekday_daytime_text_mean_fraction_of_outgoing_calls",
+                "weekday_daytime_call_mean_fraction_of_outgoing_calls",
+                "weekend_daytime_text_mean_fraction_of_outgoing_calls",
+                "weekend_daytime_call_mean_fraction_of_outgoing_calls",
+                "weekday_nighttime_text_min_fraction_of_outgoing_calls",
+                "weekday_nighttime_call_min_fraction_of_outgoing_calls",
+                "weekend_nighttime_text_min_fraction_of_outgoing_calls",
+                "weekend_nighttime_call_min_fraction_of_outgoing_calls",
+                "weekday_daytime_text_min_fraction_of_outgoing_calls",
+                "weekday_daytime_call_min_fraction_of_outgoing_calls",
+                "weekend_daytime_text_min_fraction_of_outgoing_calls",
+                "weekend_daytime_call_min_fraction_of_outgoing_calls",
+                "weekday_nighttime_text_max_fraction_of_outgoing_calls",
+                "weekday_nighttime_call_max_fraction_of_outgoing_calls",
+                "weekend_nighttime_text_max_fraction_of_outgoing_calls",
+                "weekend_nighttime_call_max_fraction_of_outgoing_calls",
+                "weekday_daytime_text_max_fraction_of_outgoing_calls",
+                "weekday_daytime_call_max_fraction_of_outgoing_calls",
+                "weekend_daytime_text_max_fraction_of_outgoing_calls",
+                "weekend_daytime_call_max_fraction_of_outgoing_calls",
+                "weekday_nighttime_text_std_fraction_of_outgoing_calls",
+                "weekday_nighttime_call_std_fraction_of_outgoing_calls",
+                "weekend_nighttime_text_std_fraction_of_outgoing_calls",
+                "weekend_nighttime_call_std_fraction_of_outgoing_calls",
+                "weekday_daytime_text_std_fraction_of_outgoing_calls",
+                "weekday_daytime_call_std_fraction_of_outgoing_calls",
+                "weekend_daytime_text_std_fraction_of_outgoing_calls",
+                "weekend_daytime_call_std_fraction_of_outgoing_calls",
+                "weekday_nighttime_text_median_fraction_of_outgoing_calls",
+                "weekday_nighttime_call_median_fraction_of_outgoing_calls",
+                "weekend_nighttime_text_median_fraction_of_outgoing_calls",
+                "weekend_nighttime_call_median_fraction_of_outgoing_calls",
+                "weekday_daytime_text_median_fraction_of_outgoing_calls",
+                "weekday_daytime_call_median_fraction_of_outgoing_calls",
+                "weekend_daytime_text_median_fraction_of_outgoing_calls",
+                "weekend_daytime_call_median_fraction_of_outgoing_calls",
+                "weekday_nighttime_text_skewness_fraction_of_outgoing_calls",
+                "weekday_nighttime_call_skewness_fraction_of_outgoing_calls",
+                "weekend_nighttime_text_skewness_fraction_of_outgoing_calls",
+                "weekend_nighttime_call_skewness_fraction_of_outgoing_calls",
+                "weekday_daytime_text_skewness_fraction_of_outgoing_calls",
+                "weekday_daytime_call_skewness_fraction_of_outgoing_calls",
+                "weekend_daytime_text_skewness_fraction_of_outgoing_calls",
+                "weekend_daytime_call_skewness_fraction_of_outgoing_calls",
+                "weekday_nighttime_text_kurtosis_fraction_of_outgoing_calls",
+                "weekday_nighttime_call_kurtosis_fraction_of_outgoing_calls",
+                "weekend_nighttime_text_kurtosis_fraction_of_outgoing_calls",
+                "weekend_nighttime_call_kurtosis_fraction_of_outgoing_calls",
+                "weekday_daytime_text_kurtosis_fraction_of_outgoing_calls",
+                "weekday_daytime_call_kurtosis_fraction_of_outgoing_calls",
+                "weekend_daytime_text_kurtosis_fraction_of_outgoing_calls",
+                "weekend_daytime_call_kurtosis_fraction_of_outgoing_calls",
+            ]
+        ) == set(pd_cdr_fraction_of_outgoing_interactions.columns)
+
+        pd_cdr_swapped = spark_cdr_swapped.toPandas()
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+            "direction_of_transaction",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_swapped.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'direction_of_transaction' and 'transaction_type' columns",
+            ):
+                get_outgoing_interaction_fraction_stats(spark_cdr_no_col)

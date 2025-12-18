@@ -36,6 +36,7 @@ from pyspark.sql.functions import (
     lag,
     last,
     when,
+    first,
     mean as pys_mean,
     sum as pys_sum,
     max as pys_max,
@@ -703,3 +704,91 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
     )
     pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
     return pivoted_df
+
+
+def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get outgoing call fraction statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'direction_of_transaction', 'transaction_type' columns
+
+    Returns:
+        df: Dataframe with outgoing call fraction statistics columns
+    """
+    if not set(
+        [
+            "caller_id",
+            "recipient_id",
+            "is_weekend",
+            "is_daytime",
+            "direction_of_transaction",
+            "transaction_type",
+        ]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'direction_of_transaction' and 'transaction_type' columns"
+        )
+
+    # Get interaction counts per caller-recipient pair
+    count_df = (
+        spark_df.groupby(
+            "caller_id",
+            "recipient_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+            "direction_of_transaction",
+        )
+        .agg(count(lit(0)).alias("interaction_count"))
+        .groupby(
+            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
+        )
+        .pivot("direction_of_transaction")
+        .agg(first("interaction_count").alias("interaction_count"))
+        .fillna(0)
+    )
+
+    # Add columns for missing direction of transactions
+    missing_direction_cols = [
+        e.value for e in DirectionOfTransactionEnum if e.value not in count_df.columns
+    ]
+    for col_name in missing_direction_cols:
+        count_df = count_df.withColumn(col_name, lit(0))
+
+    # Calculate outgoing call fraction and corresponding stats
+    summary_stats_cols = _get_summary_stats_cols("fraction_of_outgoing_calls")
+    fraction_df = (
+        count_df.withColumn(
+            "total_interactions",
+            sum([col(e.value) for e in DirectionOfTransactionEnum]),
+        )
+        .withColumn(
+            "fraction_of_outgoing_calls",
+            col(DirectionOfTransactionEnum.OUTGOING.value)
+            / col("total_interactions").cast("float"),
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
+        .agg(*summary_stats_cols)
+    )
+
+    all_aggs = []
+    cols_to_pivot = [
+        c for c in fraction_df.columns if "fraction_of_outgoing_calls" in c
+    ]
+
+    for pivot_col in cols_to_pivot:
+        aggs = _get_agg_columns(
+            pivot_col,
+            cols_to_use_for_pivot=[
+                AllowedPivotColumnsEnum.IS_WEEKEND,
+                AllowedPivotColumnsEnum.IS_DAYTIME,
+                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+            ],
+            agg_func=pys_mean,
+        )
+        all_aggs.extend(aggs)
+
+    stats_df = fraction_df.groupby("caller_id").agg(*all_aggs)
+
+    return stats_df
