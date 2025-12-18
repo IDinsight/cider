@@ -56,6 +56,8 @@ from cider.featurizer.inference import (
     get_text_response_rate,
     get_entropy_of_interactions_per_caller,
     get_outgoing_interaction_fraction_stats,
+    get_interaction_stats_per_caller,
+    get_inter_event_time_stats,
 )
 
 
@@ -887,3 +889,186 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'direction_of_transaction' and 'transaction_type' columns",
             ):
                 get_outgoing_interaction_fraction_stats(spark_cdr_no_col)
+
+    def test_get_interaction_stats_per_caller(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_with_weekend)
+        spark_interaction_stats_per_caller = get_interaction_stats_per_caller(
+            spark_cdr_swapped
+        )
+        pd_cdr_interaction_stats = spark_interaction_stats_per_caller.toPandas()
+
+        assert pd_cdr_interaction_stats.shape == (4, 57)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_text_mean_interaction_count",
+                "weekday_nighttime_call_mean_interaction_count",
+                "weekend_nighttime_text_mean_interaction_count",
+                "weekend_nighttime_call_mean_interaction_count",
+                "weekday_daytime_text_mean_interaction_count",
+                "weekday_daytime_call_mean_interaction_count",
+                "weekend_daytime_text_mean_interaction_count",
+                "weekend_daytime_call_mean_interaction_count",
+                "weekday_nighttime_text_min_interaction_count",
+                "weekday_nighttime_call_min_interaction_count",
+                "weekend_nighttime_text_min_interaction_count",
+                "weekend_nighttime_call_min_interaction_count",
+                "weekday_daytime_text_min_interaction_count",
+                "weekday_daytime_call_min_interaction_count",
+                "weekend_daytime_text_min_interaction_count",
+                "weekend_daytime_call_min_interaction_count",
+                "weekday_nighttime_text_max_interaction_count",
+                "weekday_nighttime_call_max_interaction_count",
+                "weekend_nighttime_text_max_interaction_count",
+                "weekend_nighttime_call_max_interaction_count",
+                "weekday_daytime_text_max_interaction_count",
+                "weekday_daytime_call_max_interaction_count",
+                "weekend_daytime_text_max_interaction_count",
+                "weekend_daytime_call_max_interaction_count",
+                "weekday_nighttime_text_std_interaction_count",
+                "weekday_nighttime_call_std_interaction_count",
+                "weekend_nighttime_text_std_interaction_count",
+                "weekend_nighttime_call_std_interaction_count",
+                "weekday_daytime_text_std_interaction_count",
+                "weekday_daytime_call_std_interaction_count",
+                "weekend_daytime_text_std_interaction_count",
+                "weekend_daytime_call_std_interaction_count",
+                "weekday_nighttime_text_median_interaction_count",
+                "weekday_nighttime_call_median_interaction_count",
+                "weekend_nighttime_text_median_interaction_count",
+                "weekend_nighttime_call_median_interaction_count",
+                "weekday_daytime_text_median_interaction_count",
+                "weekday_daytime_call_median_interaction_count",
+                "weekend_daytime_text_median_interaction_count",
+                "weekend_daytime_call_median_interaction_count",
+                "weekday_nighttime_text_skewness_interaction_count",
+                "weekday_nighttime_call_skewness_interaction_count",
+                "weekend_nighttime_text_skewness_interaction_count",
+                "weekend_nighttime_call_skewness_interaction_count",
+                "weekday_daytime_text_skewness_interaction_count",
+                "weekday_daytime_call_skewness_interaction_count",
+                "weekend_daytime_text_skewness_interaction_count",
+                "weekend_daytime_call_skewness_interaction_count",
+                "weekday_nighttime_text_kurtosis_interaction_count",
+                "weekday_nighttime_call_kurtosis_interaction_count",
+                "weekend_nighttime_text_kurtosis_interaction_count",
+                "weekend_nighttime_call_kurtosis_interaction_count",
+                "weekday_daytime_text_kurtosis_interaction_count",
+                "weekday_daytime_call_kurtosis_interaction_count",
+                "weekend_daytime_text_kurtosis_interaction_count",
+                "weekend_daytime_call_kurtosis_interaction_count",
+            ]
+        ) == set(pd_cdr_interaction_stats.columns)
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns",
+            ):
+                get_interaction_stats_per_caller(spark_cdr_no_col)
+
+    def test_get_inter_event_time_stats(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_inter_event_time_stats = get_inter_event_time_stats(
+            spark_cdr_with_weekend
+        )
+        pd_cdr_inter_event_time_stats = spark_inter_event_time_stats.toPandas()
+
+        assert pd_cdr_inter_event_time_stats.shape == (3, 57)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_text_mean_inter_event_time",
+                "weekday_nighttime_call_mean_inter_event_time",
+                "weekend_nighttime_text_mean_inter_event_time",
+                "weekend_nighttime_call_mean_inter_event_time",
+                "weekday_daytime_text_mean_inter_event_time",
+                "weekday_daytime_call_mean_inter_event_time",
+                "weekend_daytime_text_mean_inter_event_time",
+                "weekend_daytime_call_mean_inter_event_time",
+                "weekday_nighttime_text_min_inter_event_time",
+                "weekday_nighttime_call_min_inter_event_time",
+                "weekend_nighttime_text_min_inter_event_time",
+                "weekend_nighttime_call_min_inter_event_time",
+                "weekday_daytime_text_min_inter_event_time",
+                "weekday_daytime_call_min_inter_event_time",
+                "weekend_daytime_text_min_inter_event_time",
+                "weekend_daytime_call_min_inter_event_time",
+                "weekday_nighttime_text_max_inter_event_time",
+                "weekday_nighttime_call_max_inter_event_time",
+                "weekend_nighttime_text_max_inter_event_time",
+                "weekend_nighttime_call_max_inter_event_time",
+                "weekday_daytime_text_max_inter_event_time",
+                "weekday_daytime_call_max_inter_event_time",
+                "weekend_daytime_text_max_inter_event_time",
+                "weekend_daytime_call_max_inter_event_time",
+                "weekday_nighttime_text_std_inter_event_time",
+                "weekday_nighttime_call_std_inter_event_time",
+                "weekend_nighttime_text_std_inter_event_time",
+                "weekend_nighttime_call_std_inter_event_time",
+                "weekday_daytime_text_std_inter_event_time",
+                "weekday_daytime_call_std_inter_event_time",
+                "weekend_daytime_text_std_inter_event_time",
+                "weekend_daytime_call_std_inter_event_time",
+                "weekday_nighttime_text_median_inter_event_time",
+                "weekday_nighttime_call_median_inter_event_time",
+                "weekend_nighttime_text_median_inter_event_time",
+                "weekend_nighttime_call_median_inter_event_time",
+                "weekday_daytime_text_median_inter_event_time",
+                "weekday_daytime_call_median_inter_event_time",
+                "weekend_daytime_text_median_inter_event_time",
+                "weekend_daytime_call_median_inter_event_time",
+                "weekday_nighttime_text_skewness_inter_event_time",
+                "weekday_nighttime_call_skewness_inter_event_time",
+                "weekend_nighttime_text_skewness_inter_event_time",
+                "weekend_nighttime_call_skewness_inter_event_time",
+                "weekday_daytime_text_skewness_inter_event_time",
+                "weekday_daytime_call_skewness_inter_event_time",
+                "weekend_daytime_text_skewness_inter_event_time",
+                "weekend_daytime_call_skewness_inter_event_time",
+                "weekday_nighttime_text_kurtosis_inter_event_time",
+                "weekday_nighttime_call_kurtosis_inter_event_time",
+                "weekend_nighttime_text_kurtosis_inter_event_time",
+                "weekend_nighttime_call_kurtosis_inter_event_time",
+                "weekday_daytime_text_kurtosis_inter_event_time",
+                "weekday_daytime_call_kurtosis_inter_event_time",
+                "weekend_daytime_text_kurtosis_inter_event_time",
+                "weekend_daytime_call_kurtosis_inter_event_time",
+            ]
+        ) == set(pd_cdr_inter_event_time_stats.columns)
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in [
+            "caller_id",
+            "is_weekend",
+            "is_daytime",
+            "transaction_type",
+            "timestamp",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'timestamp', 'is_weekend', 'is_daytime', and 'transaction_type' columns",
+            ):
+                get_inter_event_time_stats(spark_cdr_no_col)

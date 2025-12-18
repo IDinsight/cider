@@ -792,3 +792,99 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
     stats_df = fraction_df.groupby("caller_id").agg(*all_aggs)
 
     return stats_df
+
+
+def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get interaction statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'transaction_type' columns
+
+    Returns:
+        df: Dataframe with interaction statistics columns
+    """
+    if not set(
+        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
+        )
+
+    summary_stats_cols = _get_summary_stats_cols("interaction_count")
+    interaction_df = (
+        spark_df.groupby(
+            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
+        )
+        .agg(count(lit(0)).alias("interaction_count"))
+        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
+        .agg(*summary_stats_cols)
+    )
+
+    all_aggs = []
+    cols_to_pivot = [c for c in interaction_df.columns if "interaction_count" in c]
+    for pivot_col in cols_to_pivot:
+        aggs = _get_agg_columns(
+            pivot_col,
+            cols_to_use_for_pivot=[
+                AllowedPivotColumnsEnum.IS_WEEKEND,
+                AllowedPivotColumnsEnum.IS_DAYTIME,
+                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+            ],
+            agg_func=pys_mean,
+        )
+        all_aggs.extend(aggs)
+
+    pivoted_df = interaction_df.groupby("caller_id").agg(*all_aggs)
+
+    return pivoted_df
+
+
+def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get inter-event time statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'timestamp', 'is_weekend', 'is_daytime', 'transaction_type' columns
+
+    Returns:
+        df: Dataframe with inter-event time statistics columns
+    """
+    if not set(
+        ["caller_id", "timestamp", "is_weekend", "is_daytime", "transaction_type"]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'timestamp', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
+        )
+
+    # Calculate inter-event times and corresponding summary stats
+    window = Window.partitionBy(
+        "caller_id", "is_weekend", "is_daytime", "transaction_type"
+    ).orderBy("timestamp")
+
+    summary_stats_cols = _get_summary_stats_cols("inter_event_time")
+    inter_event_df = (
+        spark_df.withColumn("timestamp_long", col("timestamp").cast("long"))
+        .withColumn("prev_timestamp", lag(col("timestamp_long")).over(window))
+        .withColumn("inter_event_time", col("timestamp_long") - col("prev_timestamp"))
+        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
+        .agg(*summary_stats_cols)
+    )
+
+    # Pivot inter-event time stats
+    all_aggs = []
+    cols_to_pivot = [c for c in inter_event_df.columns if "inter_event_time" in c]
+    for pivot_col in cols_to_pivot:
+        aggs = _get_agg_columns(
+            pivot_col,
+            cols_to_use_for_pivot=[
+                AllowedPivotColumnsEnum.IS_WEEKEND,
+                AllowedPivotColumnsEnum.IS_DAYTIME,
+                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+            ],
+            agg_func=pys_mean,
+        )
+        all_aggs.extend(aggs)
+
+    pivoted_df = inter_event_df.groupby("caller_id").agg(*all_aggs)
+    return pivoted_df
