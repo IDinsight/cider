@@ -62,6 +62,7 @@ from cider.featurizer.inference import (
     get_pareto_principle_call_duration_stats,
     get_number_of_interactions_per_user,
     get_number_of_antennas,
+    get_entropy_of_antennas_per_caller,
 )
 
 
@@ -1250,3 +1251,41 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns",
             ):
                 get_number_of_antennas(spark_cdr_no_col)
+
+    def test_get_entropy_of_antennas_per_caller(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+
+        spark_entropy_of_antennas = get_entropy_of_antennas_per_caller(
+            spark_cdr_with_weekend
+        )
+        pd_cdr_entropy_of_antennas = spark_entropy_of_antennas.toPandas()
+        assert pd_cdr_entropy_of_antennas.shape == (3, 5)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_entropy_of_antennas",
+                "weekend_nighttime_entropy_of_antennas",
+                "weekday_daytime_entropy_of_antennas",
+                "weekend_daytime_entropy_of_antennas",
+            ]
+        ) == set(pd_cdr_entropy_of_antennas.columns)
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in [
+            "caller_id",
+            "caller_antenna_id",
+            "is_weekend",
+            "is_daytime",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns",
+            ):
+                get_entropy_of_antennas_per_caller(spark_cdr_no_col)

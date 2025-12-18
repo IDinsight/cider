@@ -1152,3 +1152,53 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
     antenna_df = antenna_df.groupby("caller_id").agg(*aggs)
 
     return antenna_df
+
+
+def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get entropy of antennas per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'caller_antenna_id', 'is_daytime', 'is_weekend' columns
+
+    Returns:
+        df: Dataframe with entropy of antennas column
+    """
+    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
+        spark_df.columns
+    ):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
+        )
+
+    window = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
+    entropy_df = (
+        spark_df.groupby("caller_id", "caller_antenna_id", "is_weekend", "is_daytime")
+        .agg(count(lit(0)).alias("interaction_count"))
+        .withColumn("total_count", pys_sum("interaction_count").over(window))
+        .withColumn(
+            "fraction_of_interactions",
+            (col("interaction_count") / col("total_count").cast("float")),
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime")
+        .agg(
+            (
+                -1
+                * pys_sum(
+                    col("fraction_of_interactions")
+                    * pys_log(col("fraction_of_interactions"))
+                )
+            ).alias("entropy_of_antennas")
+        )
+    )
+
+    aggs = _get_agg_columns(
+        "entropy_of_antennas",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+        agg_func=first,
+    )
+    pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
+    return pivoted_df
