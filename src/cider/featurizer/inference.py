@@ -1320,6 +1320,7 @@ def get_pareto_principle_antennas(
         "row_number"
     )
 
+    # Calculate Pareto principle antenna stats
     antenna_df = (
         spark_df.groupby("caller_id", "caller_antenna_id", "is_weekend", "is_daytime")
         .agg(count(lit(0)).alias("interaction_count"))
@@ -1347,3 +1348,59 @@ def get_pareto_principle_antennas(
     )
     pivoted_df = antenna_df.groupby("caller_id").agg(*aggs)
     return pivoted_df
+
+
+def get_average_num_of_interactions_from_home_antennas(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get percentage of interactions from home antennas per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'caller_antenna_id', 'is_daytime', 'is_weekend' columns
+
+    Returns:
+        df: Dataframe with percentage of interactions from home antennas column
+    """
+    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
+        spark_df.columns
+    ):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
+        )
+
+    # Identify home antenna per caller:
+    # home antenna is the antenna from which the most nightime-calls are made
+    window = Window.partitionBy("caller_id").orderBy(
+        col("filtered_interaction_count").desc()
+    )
+    home_antenna_df = (
+        spark_df.where(col("is_daytime") == 0)
+        .groupby("caller_id", "caller_antenna_id")
+        .agg(count(lit(0)).alias("filtered_interaction_count"))
+        .withColumn("row_number", row_number().over(window))
+        .where(col("row_number") == 1)
+        .withColumnRenamed("caller_antenna_id", "home_antenna_id")
+        .drop("filtered_interaction_count")
+    )
+
+    home_interaction_df = (
+        spark_df.join(home_antenna_df, on="caller_id", how="inner")
+        .withColumn(
+            "is_home_interaction",
+            when(col("caller_antenna_id") == col("home_antenna_id"), 1).otherwise(0),
+        )
+        .groupby("caller_id", "is_weekend", "is_daytime")
+        .agg(pys_mean("is_home_interaction").alias("mean_home_antenna_interaction"))
+    )
+
+    aggs = _get_agg_columns(
+        "mean_home_antenna_interaction",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+        agg_func=first,
+    )
+
+    return home_interaction_df.groupby("caller_id").agg(*aggs)

@@ -66,6 +66,7 @@ from cider.featurizer.inference import (
     get_entropy_of_antennas_per_caller,
     get_radius_of_gyration,
     get_pareto_principle_antennas,
+    get_average_num_of_interactions_from_home_antennas,
 )
 
 
@@ -1391,3 +1392,41 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns",
             ):
                 get_pareto_principle_antennas(spark_cdr_no_col)
+
+    def test_get_average_num_of_interactions_from_home_antenna(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_avg_home_antenna_interactions = (
+            get_average_num_of_interactions_from_home_antennas(spark_cdr_with_weekend)
+        )
+
+        pd_avg_home_antenna_interactions = (
+            spark_avg_home_antenna_interactions.toPandas()
+        )
+
+        assert pd_avg_home_antenna_interactions.shape == (1, 5)
+        assert set(
+            [
+                "caller_id",
+                "weekday_nighttime_mean_home_antenna_interaction",
+                "weekend_nighttime_mean_home_antenna_interaction",
+                "weekday_daytime_mean_home_antenna_interaction",
+                "weekend_daytime_mean_home_antenna_interaction",
+            ]
+        ) == set(pd_avg_home_antenna_interactions.columns)
+        assert pd_avg_home_antenna_interactions.filter(
+            like="mean_home_antenna_interaction"
+        ).sum(1).tolist() == [0.0]
+
+        pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
+        for col in ["caller_id", "caller_antenna_id", "is_weekend", "is_daytime"]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_weekend.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns",
+            ):
+                get_average_num_of_interactions_from_home_antennas(spark_cdr_no_col)
