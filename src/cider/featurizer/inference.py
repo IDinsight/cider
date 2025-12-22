@@ -42,6 +42,7 @@ from pyspark.sql.functions import (
     max as pys_max,
     min as pys_min,
     log as pys_log,
+    stddev,
     row_number,
     sqrt,
 )
@@ -1464,3 +1465,30 @@ def get_international_interaction_statistics(
     # Drop call duration columns for texts
     stats_df = stats_df.drop("text_total_call_duration")
     return stats_df
+
+
+# Mobile data features
+def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get mobile data usage statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'day', 'volume' columns
+
+    Returns:
+        df: Dataframe with mobile data usage statistics columns
+    """
+    if not set(["caller_id", "day", "volume"]).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'day', and 'volume' columns"
+        )
+
+    summary_stats_df = spark_df.groupby("caller_id").agg(
+        pys_sum("volume").alias("total_data_volume"),
+        pys_mean("volume").alias("mean_daily_data_volume"),
+        pys_min("volume").alias("min_daily_data_volume"),
+        pys_max("volume").alias("max_daily_data_volume"),
+        stddev("volume").alias("stddev_daily_data_volume"),
+        countDistinct("day").alias("num_unique_days_with_data_usage"),
+    )
+    return summary_stats_df

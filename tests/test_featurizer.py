@@ -68,6 +68,7 @@ from cider.featurizer.inference import (
     get_pareto_principle_antennas,
     get_average_num_of_interactions_from_home_antennas,
     get_international_interaction_statistics,
+    get_mobile_data_stats,
 )
 
 
@@ -1479,3 +1480,35 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'transaction_scope', 'day', and 'duration' columns",
             ):
                 get_international_interaction_statistics(spark_cdr_no_col)
+
+    def test_get_mobile_data_stats(self, spark):
+        pd_mobile_data = pd.DataFrame(MOBILE_DATA_USAGE_DATA)
+        pd_mobile_data.loc[:, "day"] = pd_mobile_data["timestamp"].dt.date
+
+        spark_mobile_data = spark.createDataFrame(pd_mobile_data)
+
+        spark_mobile_data_stats = get_mobile_data_stats(spark_mobile_data)
+        pd_mobile_data_stats = spark_mobile_data_stats.toPandas()
+
+        assert pd_mobile_data_stats.shape == (3, 7)
+        assert set(
+            [
+                "caller_id",
+                "total_data_volume",
+                "mean_daily_data_volume",
+                "min_daily_data_volume",
+                "max_daily_data_volume",
+                "stddev_daily_data_volume",
+                "num_unique_days_with_data_usage",
+            ]
+        ) == set(pd_mobile_data_stats.columns)
+
+        for col in ["caller_id", "day", "volume"]:
+            spark_mobile_data_no_col = spark.createDataFrame(
+                pd_mobile_data.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'day', and 'volume' columns",
+            ):
+                get_mobile_data_stats(spark_mobile_data_no_col)
