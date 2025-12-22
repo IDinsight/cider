@@ -72,7 +72,7 @@ def _get_summary_stats_cols(col_name: str) -> list:
     ]
 
 
-def _get_agg_columns(
+def _get_agg_columns_by_time_and_transaction_type(
     col_name: str,
     cols_to_use_for_pivot: list[AllowedPivotColumnsEnum],
     agg_func: F = pys_sum,

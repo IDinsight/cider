@@ -48,7 +48,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.window import Window
 from .schemas import DirectionOfTransactionEnum, AllowedPivotColumnsEnum
 from .dependencies import (
-    _get_agg_columns,
+    _get_agg_columns_by_time_and_transaction_type,
     _get_summary_stats_cols,
     _great_circle_distance,
 )
@@ -313,7 +313,7 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
     spark_df_unique_contacts = spark_df.groupby(
         "caller_id", "is_weekend", "is_daytime", "transaction_type"
     ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "num_unique_contacts",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -361,7 +361,7 @@ def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
         "skewness_duration",
         "kurtosis_duration",
     ]:
-        aggs = _get_agg_columns(
+        aggs = _get_agg_columns_by_time_and_transaction_type(
             stats_col,
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -407,7 +407,7 @@ def get_percentage_of_nocturnal_interactions(
     ).select("caller_id", "percentage_nocturnal_interactions")
 
     count_df = spark_df.join(count_df, on="caller_id", how="inner")
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "percentage_nocturnal_interactions",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -462,7 +462,7 @@ def get_percentage_of_initiated_conversations(
             )
         )
     )
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "percentage_initiated_conversations",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -512,7 +512,7 @@ def get_percentage_of_initiated_calls(
         .agg(pys_mean("initiated_call").alias("percentage_initiated_calls"))
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "percentage_initiated_calls",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -586,7 +586,7 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
         "skewness_response_time_delay",
         "kurtosis_response_time_delay",
     ]:
-        aggs = _get_agg_columns(
+        aggs = _get_agg_columns_by_time_and_transaction_type(
             pivot_col,
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -649,7 +649,7 @@ def get_text_response_rate(
         .agg(pys_mean("responded").alias("text_response_rate"))
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "text_response_rate",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -700,7 +700,7 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
         )
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "entropy_of_interactions",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -785,7 +785,7 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
     ]
 
     for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns(
+        aggs = _get_agg_columns_by_time_and_transaction_type(
             pivot_col,
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -831,7 +831,7 @@ def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame
     all_aggs = []
     cols_to_pivot = [c for c in interaction_df.columns if "interaction_count" in c]
     for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns(
+        aggs = _get_agg_columns_by_time_and_transaction_type(
             pivot_col,
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -882,7 +882,7 @@ def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     all_aggs = []
     cols_to_pivot = [c for c in inter_event_df.columns if "inter_event_time" in c]
     for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns(
+        aggs = _get_agg_columns_by_time_and_transaction_type(
             pivot_col,
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -964,7 +964,7 @@ def get_pareto_principle_interaction_stats(
         )
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "pareto_principle_interaction_fraction",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1053,7 +1053,7 @@ def get_pareto_principle_call_duration_stats(
         )
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "pareto_call_duration_fraction",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1110,7 +1110,7 @@ def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFr
         pivoted_df = pivoted_df.withColumnRenamed(
             e.value, f"{e.value}_num_interactions"
         )
-        aggs = _get_agg_columns(
+        aggs = _get_agg_columns_by_time_and_transaction_type(
             f"{e.value}_num_interactions",
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1146,7 +1146,7 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
         countDistinct("caller_antenna_id").alias("num_unique_antennas")
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "num_unique_antennas",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1197,7 +1197,7 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
         )
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "entropy_of_antennas",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1277,7 +1277,7 @@ def get_radius_of_gyration(
         )
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "radius_of_gyration",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1338,7 +1338,7 @@ def get_pareto_principle_antennas(
         .agg(pys_min("row_number").alias("num_pareto_principle_antennas"))
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "num_pareto_principle_antennas",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1394,7 +1394,7 @@ def get_average_num_of_interactions_from_home_antennas(
         .agg(pys_mean("is_home_interaction").alias("mean_home_antenna_interaction"))
     )
 
-    aggs = _get_agg_columns(
+    aggs = _get_agg_columns_by_time_and_transaction_type(
         "mean_home_antenna_interaction",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
