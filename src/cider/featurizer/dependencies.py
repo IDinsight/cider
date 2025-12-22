@@ -138,6 +138,13 @@ def _great_circle_distance(spark_df: SparkDataFrame) -> SparkDataFrame:
     Return the great-circle distance in kilometers between two points, in this case always the antenna handling an
     interaction and the barycenter of all the user's interactions.
     Used to compute the radius of gyration.
+
+    Args:
+        spark_df: input spark dataframe with columns sum_latitude, sum_longitude,
+                    center_of_mass_latitude, center_of_mass_longitude
+
+    Returns:
+        spark_df: spark dataframe with additional column 'radius' representing the great-circle distance
     """
     r = 6371.0  # Earth's radius
 
