@@ -289,7 +289,7 @@ def get_outlier_days_from_cdr_data(
 
 def get_static_diagnostic_statistics(df: pd.DataFrame) -> DataDiagnosticStatistics:
     """
-    Get standrd diagnostic statistics for CDR, recharge, mobile money and mobile phone data.
+    Get standard diagnostic statistics for CDR, recharge, mobile money and mobile phone data.
 
     Args:
         df: pandas dataframe
