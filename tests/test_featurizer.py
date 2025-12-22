@@ -67,6 +67,7 @@ from cider.featurizer.inference import (
     get_radius_of_gyration,
     get_pareto_principle_antennas,
     get_average_num_of_interactions_from_home_antennas,
+    get_international_interaction_statistics,
 )
 
 
@@ -1430,3 +1431,51 @@ class TestFeaturizerInference:
                 match="Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns",
             ):
                 get_average_num_of_interactions_from_home_antennas(spark_cdr_no_col)
+
+    def test_get_international_interaction_statistics(self, spark):
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+        pd_cdr_data.loc[:, "day"] = pd_cdr_data["timestamp"].dt.date
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+        spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
+        spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_with_weekend)
+        spark_cdr_tagged = identify_and_tag_conversations(
+            spark_cdr_swapped, max_wait=3600
+        )
+        spark_international_interaction_stats = (
+            get_international_interaction_statistics(spark_cdr_tagged)
+        )
+        pd_cdr_international_interaction_stats = (
+            spark_international_interaction_stats.toPandas()
+        )
+        print(pd_cdr_international_interaction_stats)
+
+        assert pd_cdr_international_interaction_stats.shape == (2, 8)
+        assert set(
+            [
+                "caller_id",
+                "text_num_interactions",
+                "call_num_interactions",
+                "text_num_unique_recipients",
+                "call_num_unique_recipients",
+                "call_total_call_duration",
+                "text_num_unique_days",
+                "call_num_unique_days",
+            ]
+        ) == set(pd_cdr_international_interaction_stats.columns)
+
+        pd_cdr_swapped = spark_cdr_swapped.toPandas()
+        for col in [
+            "caller_id",
+            "recipient_id",
+            "transaction_type",
+            "transaction_scope",
+            "day",
+            "duration",
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(pd_cdr_swapped.drop(columns=[col]))
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'transaction_scope', 'day', and 'duration' columns",
+            ):
+                get_international_interaction_statistics(spark_cdr_no_col)

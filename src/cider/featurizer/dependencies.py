@@ -101,9 +101,14 @@ def _get_agg_columns_by_time_and_transaction_type(
             meshgrid_values.append(transaction_types)
 
     meshgrid = (
-        np.meshgrid(*meshgrid_values) if len(meshgrid_values) > 1 else meshgrid_values
+        np.meshgrid(*meshgrid_values)
+        if len(meshgrid_values) > 1
+        else np.array([meshgrid_values])
     )
     meshgrid = np.array([m.flatten() for m in meshgrid]).T.squeeze()
+    if meshgrid.ndim == 1:
+        meshgrid = meshgrid.reshape(-1, 1)
+
     aggs = []
     for vals in meshgrid:
         agg_name = ""

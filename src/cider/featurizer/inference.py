@@ -52,8 +52,10 @@ from .dependencies import (
     _get_summary_stats_cols,
     _great_circle_distance,
 )
+from ..schemas import TransactionScope
 
 
+# CDR features
 def identify_daytime(
     spark_df: SparkDataFrame, day_start: int = 7, day_end: int = 19
 ) -> SparkDataFrame:
@@ -1404,3 +1406,61 @@ def get_average_num_of_interactions_from_home_antennas(
     )
 
     return home_interaction_df.groupby("caller_id").agg(*aggs)
+
+
+# International features
+def get_international_interaction_statistics(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get number of international interactions per caller in the dataframe, disaggregated by transaction type.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'transaction_type', 'transaction_scope', 'day' and 'duration' columns
+
+    Returns:
+        df: Dataframe with international transaction statistics per transaction type: number of recipients, number of unique recipients, number of unique days, total call duration, etc.
+    """
+    if not set(
+        [
+            "caller_id",
+            "recipient_id",
+            "transaction_type",
+            "transaction_scope",
+            "day",
+            "duration",
+        ]
+    ).issubset(spark_df.columns):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'transaction_scope', 'day', and 'duration' columns"
+        )
+
+    international_df = spark_df.filter(
+        col("transaction_scope") == TransactionScope.INTERNATIONAL.value
+    )
+    all_stats_df = international_df.groupBy("caller_id", "transaction_type").agg(
+        count("recipient_id").alias("num_interactions"),
+        countDistinct("recipient_id").alias("num_unique_recipients"),
+        pys_sum("duration").alias("total_call_duration"),
+        countDistinct("day").alias("num_unique_days"),
+    )
+    all_aggs = []
+    for pivot_col in [
+        "num_interactions",
+        "num_unique_recipients",
+        "total_call_duration",
+        "num_unique_days",
+    ]:
+        aggs = _get_agg_columns_by_time_and_transaction_type(
+            pivot_col,
+            cols_to_use_for_pivot=[
+                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+            ],
+            agg_func=pys_sum,
+        )
+        all_aggs.extend(aggs)
+    stats_df = all_stats_df.groupby("caller_id").agg(*all_aggs)
+
+    # Drop call duration columns for texts
+    stats_df = stats_df.drop("text_total_call_duration")
+    return stats_df
