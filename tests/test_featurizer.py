@@ -1066,9 +1066,184 @@ class TestFeaturizerInference:
                         0,
                     ],
                 }
+            case "get_interaction_stats_per_caller":
+                expected_results = {
+                    "weekday_nighttime_text_mean_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_nighttime_call_mean_interaction_count": [
+                        0,
+                        0,
+                        1,
+                        1,
+                    ],
+                    "weekend_nighttime_text_mean_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekend_nighttime_call_mean_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_daytime_text_mean_interaction_count": [0, 0, 0, 0],
+                    "weekday_daytime_call_mean_interaction_count": [1, 1, 0, 0],
+                    "weekend_daytime_text_mean_interaction_count": [0, 0, 0, 0],
+                    "weekend_daytime_call_mean_interaction_count": [0, 0, 0, 0],
+                    "weekday_nighttime_text_min_interaction_count": [0, 0, 0, 0],
+                    "weekday_nighttime_call_min_interaction_count": [0, 0, 1, 1],
+                    "weekend_nighttime_text_min_interaction_count": [0, 0, 0, 0],
+                    "weekend_nighttime_call_min_interaction_count": [0, 0, 0, 0],
+                    "weekday_daytime_text_min_interaction_count": [0, 0, 0, 0],
+                    "weekday_daytime_call_min_interaction_count": [1, 1, 0, 0],
+                    "weekend_daytime_text_min_interaction_count": [0, 0, 0, 0],
+                    "weekend_daytime_call_min_interaction_count": [0, 0, 0, 0],
+                    "weekday_nighttime_text_max_interaction_count": [0, 0, 0, 0],
+                    "weekday_nighttime_call_max_interaction_count": [0, 0, 1, 1],
+                    "weekend_nighttime_text_max_interaction_count": [0, 0, 0, 0],
+                    "weekend_nighttime_call_max_interaction_count": [0, 0, 0, 0],
+                    "weekday_daytime_text_max_interaction_count": [0, 0, 0, 0],
+                    "weekday_daytime_call_max_interaction_count": [1, 1, 0, 0],
+                    "weekend_daytime_text_max_interaction_count": [0, 0, 0, 0],
+                    "weekend_daytime_call_max_interaction_count": [0, 0, 0, 0],
+                    "weekday_nighttime_text_std_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_nighttime_call_std_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekend_nighttime_text_std_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekend_nighttime_call_std_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_daytime_text_std_interaction_count": [0, 0, 0, 0],
+                    "weekday_daytime_call_std_interaction_count": [0, 0, 0, 0],
+                    "weekend_daytime_text_std_interaction_count": [0, 0, 0, 0],
+                    "weekend_daytime_call_std_interaction_count": [0, 0, 0, 0],
+                    "weekday_nighttime_text_median_interaction_count": [0, 0, 0, 0],
+                    "weekday_nighttime_call_median_interaction_count": [0, 0, 1, 1],
+                    "weekend_nighttime_text_median_interaction_count": [0, 0, 0, 0],
+                    "weekend_nighttime_call_median_interaction_count": [0, 0, 0, 0],
+                    "weekday_daytime_text_median_interaction_count": [0, 0, 0, 0],
+                    "weekday_daytime_call_median_interaction_count": [1, 1, 0, 0],
+                    "weekend_daytime_text_median_interaction_count": [0, 0, 0, 0],
+                    "weekend_daytime_call_median_interaction_count": [0, 0, 0, 0],
+                    "weekday_nighttime_text_skewness_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_nighttime_call_skewness_interaction_count": [
+                        0,
+                        0,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_skewness_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekend_nighttime_call_skewness_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_daytime_text_skewness_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_daytime_call_skewness_interaction_count": [
+                        np.nan,
+                        np.nan,
+                        0,
+                        0,
+                    ],
+                    "weekend_daytime_text_skewness_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekend_daytime_call_skewness_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_nighttime_text_kurtosis_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_nighttime_call_kurtosis_interaction_count": [
+                        0,
+                        0,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_kurtosis_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekend_nighttime_call_kurtosis_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_daytime_text_kurtosis_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_daytime_call_kurtosis_interaction_count": [
+                        np.nan,
+                        np.nan,
+                        0,
+                        0,
+                    ],
+                    "weekend_daytime_text_kurtosis_interaction_count": [0, 0, 0, 0],
+                    "weekend_daytime_call_kurtosis_interaction_count": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                }
 
             case _:
-                expected_results = {}
+                raise ValueError(f"Function {function} does not exist.")
 
         return pd.DataFrame(expected_results).reset_index(drop=True)
 
@@ -1085,6 +1260,7 @@ class TestFeaturizerInference:
             "get_text_response_rate",
             "get_entropy_of_interactions_per_caller",
             "get_outgoing_interaction_fraction_stats",
+            "get_interaction_stats_per_caller",
         ],
     )
     def test_featurize_function(
