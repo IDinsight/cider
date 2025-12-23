@@ -1801,6 +1801,17 @@ class TestFeaturizerInference:
                     "weekend_daytime_mean_home_antenna_interaction": [0.0, 0.0],
                 }
 
+            case "get_international_interaction_statistics":
+                expected_results = {
+                    "text_num_interactions": [1.0, 1.0],
+                    "call_num_interactions": [1.0, 1.0],
+                    "text_num_unique_recipients": [1.0, 1.0],
+                    "call_num_unique_recipients": [1.0, 1.0],
+                    "call_total_call_duration": [100.0, 100.0],
+                    "text_num_unique_days": [1.0, 1.0],
+                    "call_num_unique_days": [1.0, 1.0],
+                }
+
             case _:
                 raise ValueError(f"Function {function} does not exist.")
 
@@ -1828,6 +1839,7 @@ class TestFeaturizerInference:
             "get_entropy_of_antennas_per_caller",
             "get_pareto_principle_antennas",
             "get_average_num_of_interactions_from_home_antennas",
+            "get_international_interaction_statistics",
         ],
     )
     def test_featurize_function(
@@ -1837,8 +1849,6 @@ class TestFeaturizerInference:
         func = FUNCTION_MAP[function_to_test]
         spark_function_output = func(spark_cdr_with_conversations)
         pd_function_output = spark_function_output.toPandas()
-
-        print(pd_function_output.to_dict(orient="list"))
 
         assert set(
             [
