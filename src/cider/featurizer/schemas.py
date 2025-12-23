@@ -29,6 +29,8 @@
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated
 from enum import Enum
+from cider.schemas import CallDataRecordData
+from datetime import date, datetime
 
 
 class DirectionOfTransactionEnum(str, Enum):
@@ -69,3 +71,27 @@ class AllowedPivotColumnsEnum(str, Enum):
     IS_WEEKEND = "is_weekend"
     IS_DAYTIME = "is_daytime"
     TRANSACTION_TYPE = "transaction_type"
+
+
+class CallDataRecordTagged(CallDataRecordData):
+    """
+    Schema for call data record with tagged conversations.
+    Inherits from CallDataRecordData and adds an additional field for tagged conversation.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    day: Annotated[date, Field(description="Day of the month")]
+    is_daytime: Annotated[
+        bool, Field(description="Whether the call was made during daytime")
+    ]
+    is_weekend: Annotated[
+        bool, Field(description="Whether the call was made on a weekend")
+    ]
+    direction_of_transaction: Annotated[
+        DirectionOfTransactionEnum,
+        Field(description="Direction of the transaction (incoming, outgoing, etc.)"),
+    ]
+    conversation: Annotated[
+        datetime | None, Field(description="Timestamp of the conversation start")
+    ]

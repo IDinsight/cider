@@ -59,7 +59,11 @@ from pyspark.sql.functions import (
     last,
 )
 from pyspark.sql.window import Window
-from cider.schemas import CallDataRecordTransactionType, CallDataRecordData
+from cider.schemas import (
+    CallDataRecordTransactionType,
+    CallDataRecordData,
+    MobileMoneyTransactionData,
+)
 from cider.utils import _validate_dataframe
 import numpy as np
 
@@ -563,20 +567,8 @@ def identify_mobile_money_transaction_direction(
         df: Dataframe with additional 'direction_of_transaction' column
     """
 
-    if not set(
-        [
-            "txn_type",
-            "caller_id",
-            "recipient_id",
-            "day",
-            "amount",
-            "sender_balance_before",
-            "sender_balance_after",
-        ]
-    ).issubset(set(spark_df.columns)):
-        raise ValueError(
-            "Dataframe must contain 'caller_id' and 'recipient_id' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, MobileMoneyTransactionData)
 
     spark_df = spark_df.withColumn(
         "direction_of_transaction",

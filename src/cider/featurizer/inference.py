@@ -44,13 +44,18 @@ from pyspark.sql.functions import (
     sqrt,
 )
 from pyspark.sql.window import Window
-from .schemas import DirectionOfTransactionEnum, AllowedPivotColumnsEnum
+from .schemas import (
+    DirectionOfTransactionEnum,
+    AllowedPivotColumnsEnum,
+    CallDataRecordTagged,
+)
 from .dependencies import (
     _get_agg_columns_by_time_and_transaction_type,
     _get_summary_stats_cols,
     _great_circle_distance,
 )
-from ..schemas import TransactionScope
+from cider.schemas import TransactionScope
+from cider.utils import _validate_dataframe
 
 
 # CDR features
@@ -64,12 +69,8 @@ def get_active_days(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with additional 'active_days' column
     """
-    if not set(["caller_id", "timestamp", "day", "is_weekend", "is_daytime"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'timestamp', 'day', 'is_weekend', and 'is_daytime' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     out = spark_df.groupby("caller_id").agg(
         # Overall
@@ -116,12 +117,8 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
     Returns:
         df: Dataframe with num unique callers for each combination of is_weekend, is_daytime, and transaction_type
     """
-    if not set(
-        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Count distinct contacts per caller, disaggregated by type and time of day
     spark_df_unique_contacts = spark_df.groupby(
@@ -151,12 +148,8 @@ def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with call duration statistics columns for each weekday/weekend and day/nighttime combination.
     """
-    if not set(
-        ["caller_id", "transaction_type", "is_weekend", "is_daytime", "duration"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'transaction_type', 'is_weekend', 'is_daytime', and 'duration' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     filtered_df = spark_df.filter(col("transaction_type") == "call")
 
@@ -202,12 +195,8 @@ def get_percentage_of_nocturnal_interactions(
     Returns:
         df: Dataframe with percentage of nocturnal interactions column
     """
-    if not set(["caller_id", "is_daytime", "is_weekend", "transaction_type"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'is_daytime', 'is_weekend' and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     count_df = spark_df.groupby("caller_id").agg(
         count("*").alias("total_interactions"),
@@ -246,19 +235,8 @@ def get_percentage_of_initiated_conversations(
     Returns:
         df: Dataframe with percentage of initiated conversations column
     """
-    if not set(
-        [
-            "caller_id",
-            "timestamp",
-            "conversation",
-            "is_weekend",
-            "is_daytime",
-            "direction_of_transaction",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'timestamp', 'conversation', 'is_weekend', 'is_daytime' and 'direction_of_transaction' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # TODO: this calculation is copied from deprecated.helpers.features.precent_initiated_conversations
     # but it seems to calculate the average number of initiated conversations per daytime / weekend convo
@@ -300,18 +278,9 @@ def get_percentage_of_initiated_calls(
     Returns:
         df: Dataframe with percentage of initiated calls column
     """
-    if not set(
-        [
-            "caller_id",
-            "is_weekend",
-            "is_daytime",
-            "direction_of_transaction",
-            "transaction_type",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'is_weekend', 'is_daytime', 'direction_of_transaction' and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
+
     spark_df_filtered = spark_df.where(col("transaction_type") == "call")
 
     # TODO: this calculation is copied from deprecated.helpers.features.percent_initiated_calls
@@ -348,21 +317,8 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
     Returns:
         df: Dataframe with text response time delay statistics columns
     """
-    if not set(
-        [
-            "caller_id",
-            "recipient_id",
-            "transaction_type",
-            "timestamp",
-            "is_weekend",
-            "is_daytime",
-            "conversation",
-            "direction_of_transaction",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Filter to only text transactions
     filtered_df = spark_df.filter(col("transaction_type") == "text")
@@ -427,21 +383,8 @@ def get_text_response_rate(
     Returns:
         df: Dataframe with text response rate columns
     """
-    if not set(
-        [
-            "caller_id",
-            "recipient_id",
-            "transaction_type",
-            "timestamp",
-            "is_weekend",
-            "is_daytime",
-            "conversation",
-            "direction_of_transaction",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Filter to only text transactions
     filtered_df = spark_df.filter(col("transaction_type") == "text")
@@ -487,12 +430,8 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
     Returns:
         df: Dataframe with entropy of interactions column
     """
-    if not set(
-        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     window = Window.partitionBy(
         "caller_id", "is_weekend", "is_daytime", "transaction_type"
@@ -537,19 +476,8 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
     Returns:
         df: Dataframe with outgoing call fraction statistics columns
     """
-    if not set(
-        [
-            "caller_id",
-            "recipient_id",
-            "is_weekend",
-            "is_daytime",
-            "direction_of_transaction",
-            "transaction_type",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'direction_of_transaction' and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Get interaction counts per caller-recipient pair
     count_df = (
@@ -625,12 +553,8 @@ def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame
     Returns:
         df: Dataframe with interaction statistics columns
     """
-    if not set(
-        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     summary_stats_cols = _get_summary_stats_cols("interaction_count")
     interaction_df = (
@@ -671,12 +595,8 @@ def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with inter-event time statistics columns
     """
-    if not set(
-        ["caller_id", "timestamp", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'timestamp', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Calculate inter-event times and corresponding summary stats
     window = Window.partitionBy(
@@ -727,12 +647,8 @@ def get_pareto_principle_interaction_stats(
     Returns:
         df: Dataframe with Pareto principle interaction statistics columns
     """
-    if not set(
-        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Set up windows for calculations
     window_1 = Window.partitionBy(
@@ -807,19 +723,8 @@ def get_pareto_principle_call_duration_stats(
     Returns:
         df: Dataframe with Pareto principle call duration statistics columns
     """
-    if not set(
-        [
-            "caller_id",
-            "recipient_id",
-            "is_weekend",
-            "is_daytime",
-            "transaction_type",
-            "duration",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'duration' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Filter to only call transactions
     filtered_df = spark_df.filter(col("transaction_type") == "call")
@@ -889,18 +794,8 @@ def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFr
     Returns:
         df: Dataframe with number of interactions columns
     """
-    if not set(
-        [
-            "caller_id",
-            "is_weekend",
-            "is_daytime",
-            "transaction_type",
-            "direction_of_transaction",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'direction_of_transaction' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     count_df = spark_df.groupby(
         "caller_id",
@@ -949,12 +844,8 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with number of unique antennas column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     antenna_df = spark_df.groupby("caller_id", "is_daytime", "is_weekend").agg(
         countDistinct("caller_antenna_id").alias("num_unique_antennas")
@@ -983,12 +874,8 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
     Returns:
         df: Dataframe with entropy of antennas column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     window = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
     entropy_df = (
@@ -1042,12 +929,8 @@ def get_radius_of_gyration(
     Returns:
         df: Dataframe with radius of gyration column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_weekend", "is_daytime"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_weekend', and 'is_daytime' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     if not set(["caller_antenna_id", "latitude", "longitude"]).issubset(
         spark_antennas_df.columns
@@ -1118,12 +1001,8 @@ def get_pareto_principle_antennas(
     Returns:
         df: Dataframe with Pareto principle antennas column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Configure windows for calculations
     window_1 = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
@@ -1176,12 +1055,8 @@ def get_average_num_of_interactions_from_home_antennas(
     Returns:
         df: Dataframe with percentage of interactions from home antennas column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Identify home antenna per caller:
     # home antenna is the antenna from which the most nightime-calls are made
@@ -1233,19 +1108,8 @@ def get_international_interaction_statistics(
     Returns:
         df: Dataframe with international transaction statistics per transaction type: number of recipients, number of unique recipients, number of unique days, total call duration, etc.
     """
-    if not set(
-        [
-            "caller_id",
-            "recipient_id",
-            "transaction_type",
-            "transaction_scope",
-            "day",
-            "duration",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'transaction_scope', 'day', and 'duration' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     international_df = spark_df.filter(
         col("transaction_scope") == TransactionScope.INTERNATIONAL.value
