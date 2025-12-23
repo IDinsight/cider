@@ -34,6 +34,7 @@ from .schemas import (
     DataDiagnosticStatistics,
     AllowedPivotColumnsEnum,
     DirectionOfTransactionEnum,
+    MobileMoneyDatawithDay,
 )
 import pyspark.sql.functions as F
 from pyspark.sql.functions import (
@@ -62,7 +63,6 @@ from pyspark.sql.window import Window
 from cider.schemas import (
     CallDataRecordTransactionType,
     CallDataRecordData,
-    MobileMoneyTransactionData,
 )
 from cider.utils import _validate_dataframe
 import numpy as np
@@ -568,13 +568,48 @@ def identify_mobile_money_transaction_direction(
     """
 
     # Validate input dataframe
-    _validate_dataframe(spark_df, MobileMoneyTransactionData)
+    _validate_dataframe(spark_df, MobileMoneyDatawithDay)
 
-    spark_df = spark_df.withColumn(
-        "direction_of_transaction",
-        when(col("transaction_type") == "mobile_money_send", lit("outgoing")).otherwise(
-            lit("incoming")
-        ),
+    outgoing_interactions = (
+        spark_df.select(
+            [
+                "caller_id",
+                "recipient_id",
+                "day",
+                "amount",
+                "caller_balance_before",
+                "caller_balance_after",
+                "transaction_type",
+            ]
+        )
+        .withColumnRenamed("caller_id", "primary_id")
+        .withColumnRenamed("recipient_id", "correspondent_id")
+        .withColumnRenamed("caller_balance_before", "balance_before")
+        .withColumnRenamed("caller_balance_after", "balance_after")
+        .withColumn(
+            "direction_of_transaction", lit(DirectionOfTransactionEnum.OUTGOING.value)
+        )
     )
+    incoming_interactions = (
+        spark_df.select(
+            [
+                "caller_id",
+                "recipient_id",
+                "day",
+                "amount",
+                "recipient_balance_before",
+                "recipient_balance_after",
+                "transaction_type",
+            ]
+        )
+        .withColumnRenamed("recipient_id", "primary_id")
+        .withColumnRenamed("caller_id", "correspondent_id")
+        .withColumnRenamed("recipient_balance_before", "balance_before")
+        .withColumnRenamed("recipient_balance_after", "balance_after")
+        .withColumn(
+            "direction_of_transaction", lit(DirectionOfTransactionEnum.INCOMING.value)
+        )
+    )
+    all_interactions = outgoing_interactions.unionByName(incoming_interactions)
 
-    return spark_df
+    return all_interactions

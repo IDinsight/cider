@@ -29,7 +29,11 @@
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated
 from enum import Enum
-from cider.schemas import CallDataRecordData
+from cider.schemas import (
+    CallDataRecordData,
+    MobileMoneyTransactionData,
+    MobileMoneyTransactionType,
+)
 from datetime import date, datetime
 
 
@@ -94,4 +98,56 @@ class CallDataRecordTagged(CallDataRecordData):
     ]
     conversation: Annotated[
         datetime | None, Field(description="Timestamp of the conversation start")
+    ]
+
+
+class MobileMoneyDatawithDay(MobileMoneyTransactionData):
+    """
+    Schema for mobile money transaction data with day information.
+    Inherits from MobileMoneyTransactionData and adds an additional field for day.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    day: Annotated[
+        date, Field(description="Date without timestamp when the transaction occurred")
+    ]
+
+
+class MobileMoneyDataWithDirection(BaseModel):
+    """
+    Schema for mobile money transaction data with direction of transaction.
+    Inherits from MobileMoneyTransactionData and adds an additional field for direction of transaction.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    primary_id: Annotated[
+        str,
+        Field(
+            description="Unique identifier for the primary account involved in the transaction"
+        ),
+    ]
+    correspondent_id: Annotated[
+        str,
+        Field(
+            description="Unique identifier for the correspondent account involved in the transaction"
+        ),
+    ]
+    day: Annotated[
+        date, Field(description="Date without timestamp when the transaction occurred")
+    ]
+    amount: Annotated[float, Field(description="Amount of the transaction")]
+    balance_before: Annotated[
+        float, Field(description="Balance before the transaction for primary account")
+    ]
+    balance_after: Annotated[
+        float, Field(description="Balance after the transaction for primary account")
+    ]
+    transaction_type: Annotated[
+        MobileMoneyTransactionType, Field(description="Type of the transaction")
+    ]
+    direction_of_transaction: Annotated[
+        DirectionOfTransactionEnum,
+        Field(description="Direction of the transaction (incoming or outgoing)"),
     ]

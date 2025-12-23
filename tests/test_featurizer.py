@@ -31,13 +31,18 @@ from conftest import (
     MOBILE_DATA_USAGE_DATA,
     MOBILE_MONEY_TRANSACTION_DATA,
     RECHARGE_DATA,
+    ANTENNA_DATA,
 )
 import numpy as np
 import pandas as pd
 import deepdiff
 import pytest
 from cider.schemas import CallDataRecordData
-from cider.featurizer.schemas import CallDataRecordTagged
+from cider.featurizer.schemas import (
+    CallDataRecordTagged,
+    MobileMoneyDataWithDirection,
+    MobileMoneyDatawithDay,
+)
 from cider.featurizer.dependencies import (
     filter_to_datetime,
     get_spammers_from_cdr_data,
@@ -48,6 +53,7 @@ from cider.featurizer.dependencies import (
     identify_weekend,
     swap_caller_and_recipient,
     identify_and_tag_conversations,
+    identify_mobile_money_transaction_direction,
 )
 from cider.featurizer.inference import (
     get_active_days,
@@ -70,6 +76,8 @@ from cider.featurizer.inference import (
     get_pareto_principle_antennas,
     get_average_num_of_interactions_from_home_antennas,
     get_international_interaction_statistics,
+    get_radius_of_gyration,
+    get_mobile_data_stats,
 )
 
 FUNCTION_MAP = {
@@ -381,6 +389,34 @@ class TestFeaturizerDependencies:
                 match=f"The following required columns are missing from the dataframe: {set([col])}",
             ):
                 identify_and_tag_conversations(spark_cdr_missing)
+
+    def test_identify_mobile_money_transaction_direction(self, spark):
+        pd_mobile_money_data = pd.DataFrame(MOBILE_MONEY_TRANSACTION_DATA)
+        pd_mobile_money_data["day"] = pd_mobile_money_data["timestamp"].dt.date
+        spark_mobile_money_data = spark.createDataFrame(pd_mobile_money_data)
+        spark_mobile_money_direction = identify_mobile_money_transaction_direction(
+            spark_mobile_money_data
+        )
+
+        assert set(spark_mobile_money_direction.toPandas().columns) == set(
+            MobileMoneyDataWithDirection.model_fields.keys()
+        )
+
+        for col in [
+            key
+            for key, field in MobileMoneyDatawithDay.model_fields.items()
+            if field.is_required()
+        ]:
+            pd_mobile_money_data_missing = pd_mobile_money_data.drop(columns=[col])
+            spark_mobile_money_missing = spark.createDataFrame(
+                pd_mobile_money_data_missing
+            )
+
+            with pytest.raises(
+                ValueError,
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
+            ):
+                identify_mobile_money_transaction_direction(spark_mobile_money_missing)
 
 
 class TestFeaturizerInference:
@@ -1880,92 +1916,101 @@ class TestFeaturizerInference:
             ):
                 func(spark_cdr_no_col)
 
-    # def test_get_radius_of_gyration(self, spark):
-    #     pd_cdr_data = pd.DataFrame(CDR_DATA)
-    #     pd_antenna_data = pd.DataFrame(ANTENNA_DATA)
-    #     pd_antenna_data.rename(
-    #         columns={"antenna_id": "caller_antenna_id"}, inplace=True
-    #     )
+    def test_get_radius_of_gyration(self, spark_cdr_with_conversations, spark):
+        pd_antenna_data = pd.DataFrame(ANTENNA_DATA)
+        pd_antenna_data.rename(
+            columns={"antenna_id": "caller_antenna_id"}, inplace=True
+        )
+        spark_antenna_data = spark.createDataFrame(pd_antenna_data)
 
-    #     spark_cdr_data = spark.createDataFrame(pd_cdr_data)
-    #     spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
-    #     spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+        spark_radius_of_gyration = get_radius_of_gyration(
+            spark_cdr_with_conversations, spark_antenna_data
+        )
+        pd_radius_of_gyration = spark_radius_of_gyration.toPandas()
+        expected_results = {
+            "weekday_nighttime_radius_of_gyration": [0.0, 0.0, 0.0, 0.0],
+            "weekend_nighttime_radius_of_gyration": [0.0, 0.0, 0.0, 0.0],
+            "weekday_daytime_radius_of_gyration": [327.0168802664289, 0.0, 0.0, 0.0],
+            "weekend_daytime_radius_of_gyration": [0.0, 0.0, 0.0, 0.0],
+        }
+        expected_results = pd.DataFrame(expected_results).reset_index(drop=True)
 
-    #     spark_antenna_data = spark.createDataFrame(pd_antenna_data)
+        assert set(
+            [
+                "caller_id",
+                *expected_results.keys(),
+            ]
+        ) == set(pd_radius_of_gyration.columns)
+        assert (
+            deepdiff.DeepDiff(
+                pd_radius_of_gyration.reset_index(drop=True).drop(
+                    columns=["caller_id"]
+                ),
+                expected_results,
+                ignore_order=True,
+            )
+            == {}
+        )
 
-    #     spark_radius_of_gyration = get_radius_of_gyration(
-    #         spark_cdr_with_weekend, spark_antenna_data
-    #     )
-    #     pd_cdr_radius_of_gyration = spark_radius_of_gyration.toPandas()
-    #     assert pd_cdr_radius_of_gyration.shape == (3, 5)
-    #     assert set(
-    #         [
-    #             "caller_id",
-    #             "weekday_nighttime_radius_of_gyration",
-    #             "weekend_nighttime_radius_of_gyration",
-    #             "weekday_daytime_radius_of_gyration",
-    #             "weekend_daytime_radius_of_gyration",
-    #         ]
-    #     ) == set(pd_cdr_radius_of_gyration.columns)
+        pd_cdr_with_conversations = spark_cdr_with_conversations.toPandas()
+        for col in [
+            k
+            for k, field in CallDataRecordTagged.model_fields.items()
+            if field.is_required()
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_conversations.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
+            ):
+                get_radius_of_gyration(spark_cdr_no_col, spark_antenna_data)
 
-    #     pd_cdr_with_weekend = spark_cdr_with_weekend.toPandas()
-    #     for col in [
-    #         "caller_id",
-    #         "caller_antenna_id",
-    #         "is_weekend",
-    #         "is_daytime",
-    #     ]:
-    #         spark_cdr_no_col = spark.createDataFrame(
-    #             pd_cdr_with_weekend.drop(columns=[col])
-    #         )
-    #         with pytest.raises(
-    #             ValueError,
-    #             match="Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_weekend', and 'is_daytime' columns",
-    #         ):
-    #             get_radius_of_gyration(spark_cdr_no_col, spark_antenna_data)
+        for col in [
+            "caller_antenna_id",
+            "latitude",
+            "longitude",
+        ]:
+            spark_antenna_no_col = spark.createDataFrame(
+                pd_antenna_data.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Antennas dataframe must contain 'caller_antenna_id', 'latitude', and 'longitude' columns",
+            ):
+                get_radius_of_gyration(
+                    spark_cdr_with_conversations, spark_antenna_no_col
+                )
 
-    #     for col in [
-    #         "caller_antenna_id",
-    #         "latitude",
-    #         "longitude",
-    #     ]:
-    #         spark_antenna_no_col = spark.createDataFrame(
-    #             pd_antenna_data.drop(columns=[col])
-    #         )
-    #         with pytest.raises(
-    #             ValueError,
-    #             match="Antennas dataframe must contain 'caller_antenna_id', 'latitude', and 'longitude' columns",
-    #         ):
-    #             get_radius_of_gyration(spark_cdr_with_weekend, spark_antenna_no_col)
+    def test_get_mobile_data_stats(self, spark):
+        pd_mobile_data = pd.DataFrame(MOBILE_DATA_USAGE_DATA)
+        pd_mobile_data.loc[:, "day"] = pd_mobile_data["timestamp"].dt.date
 
-    # def test_get_mobile_data_stats(self, spark):
-    #     pd_mobile_data = pd.DataFrame(MOBILE_DATA_USAGE_DATA)
-    #     pd_mobile_data.loc[:, "day"] = pd_mobile_data["timestamp"].dt.date
+        spark_mobile_data = spark.createDataFrame(pd_mobile_data)
 
-    #     spark_mobile_data = spark.createDataFrame(pd_mobile_data)
+        spark_mobile_data_stats = get_mobile_data_stats(spark_mobile_data)
+        pd_mobile_data_stats = spark_mobile_data_stats.toPandas()
 
-    #     spark_mobile_data_stats = get_mobile_data_stats(spark_mobile_data)
-    #     pd_mobile_data_stats = spark_mobile_data_stats.toPandas()
+        assert pd_mobile_data_stats.shape == (3, 7)
+        assert set(
+            [
+                "caller_id",
+                "total_data_volume",
+                "mean_daily_data_volume",
+                "min_daily_data_volume",
+                "max_daily_data_volume",
+                "stddev_daily_data_volume",
+                "num_unique_days_with_data_usage",
+            ]
+        ) == set(pd_mobile_data_stats.columns)
 
-    #     assert pd_mobile_data_stats.shape == (3, 7)
-    #     assert set(
-    #         [
-    #             "caller_id",
-    #             "total_data_volume",
-    #             "mean_daily_data_volume",
-    #             "min_daily_data_volume",
-    #             "max_daily_data_volume",
-    #             "stddev_daily_data_volume",
-    #             "num_unique_days_with_data_usage",
-    #         ]
-    #     ) == set(pd_mobile_data_stats.columns)
-
-    #     for col in ["caller_id", "day", "volume"]:
-    #         spark_mobile_data_no_col = spark.createDataFrame(
-    #             pd_mobile_data.drop(columns=[col])
-    #         )
-    #         with pytest.raises(
-    #             ValueError,
-    #             match="Dataframe must contain 'caller_id', 'day', and 'volume' columns",
-    #         ):
-    #             get_mobile_data_stats(spark_mobile_data_no_col)
+        for col in ["caller_id", "day", "volume"]:
+            spark_mobile_data_no_col = spark.createDataFrame(
+                pd_mobile_data.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id', 'day', and 'volume' columns",
+            ):
+                get_mobile_data_stats(spark_mobile_data_no_col)
