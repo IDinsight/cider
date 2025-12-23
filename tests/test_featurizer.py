@@ -1766,6 +1766,34 @@ class TestFeaturizerInference:
                     "weekend_daytime_entropy_of_antennas": [0.0, 0.0, 0.0, 0.0],
                 }
 
+            case "get_pareto_principle_antennas":
+                expected_results = {
+                    "weekday_nighttime_num_pareto_principle_antennas": [
+                        0.0,
+                        0.0,
+                        1.0,
+                        1.0,
+                    ],
+                    "weekend_nighttime_num_pareto_principle_antennas": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "weekday_daytime_num_pareto_principle_antennas": [
+                        2.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "weekend_daytime_num_pareto_principle_antennas": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                }
+
             case _:
                 raise ValueError(f"Function {function} does not exist.")
 
@@ -1791,6 +1819,7 @@ class TestFeaturizerInference:
             "get_number_of_interactions_per_user",
             "get_number_of_antennas",
             "get_entropy_of_antennas_per_caller",
+            "get_pareto_principle_antennas",
         ],
     )
     def test_featurize_function(
