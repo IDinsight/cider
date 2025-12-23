@@ -1117,7 +1117,6 @@ class TestFeaturizerInference:
                         0,
                         0,
                         0,
-                        0,
                     ],
                     "weekday_nighttime_call_std_interaction_count": [
                         0,
@@ -1241,6 +1240,210 @@ class TestFeaturizerInference:
                         0,
                     ],
                 }
+            case "get_inter_event_time_stats":
+                expected_results = {
+                    "weekday_nighttime_text_mean_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_call_mean_inter_event_time": [
+                        0,
+                        0,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_mean_inter_event_time": [0, 0, 0, 0],
+                    "weekend_nighttime_call_mean_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_text_mean_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_call_mean_inter_event_time": [
+                        np.nan,
+                        np.nan,
+                        0,
+                        0,
+                    ],
+                    "weekend_daytime_text_mean_inter_event_time": [0, 0, 0, 0],
+                    "weekend_daytime_call_mean_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_text_min_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_call_min_inter_event_time": [
+                        0,
+                        0,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_min_inter_event_time": [0, 0, 0, 0],
+                    "weekend_nighttime_call_min_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_text_min_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_call_min_inter_event_time": [np.nan, np.nan, 0, 0],
+                    "weekend_daytime_text_min_inter_event_time": [0, 0, 0, 0],
+                    "weekend_daytime_call_min_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_text_max_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_call_max_inter_event_time": [
+                        0,
+                        0,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_max_inter_event_time": [0, 0, 0, 0],
+                    "weekend_nighttime_call_max_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_text_max_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_call_max_inter_event_time": [np.nan, np.nan, 0, 0],
+                    "weekend_daytime_text_max_inter_event_time": [0, 0, 0, 0],
+                    "weekend_daytime_call_max_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_text_std_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_call_std_inter_event_time": [
+                        0,
+                        0,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_std_inter_event_time": [0, 0, 0, 0],
+                    "weekend_nighttime_call_std_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_text_std_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_call_std_inter_event_time": [np.nan, np.nan, 0, 0],
+                    "weekend_daytime_text_std_inter_event_time": [0, 0, 0, 0],
+                    "weekend_daytime_call_std_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_text_median_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_call_median_inter_event_time": [
+                        0,
+                        0,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_median_inter_event_time": [0, 0, 0, 0],
+                    "weekend_nighttime_call_median_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_text_median_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_call_median_inter_event_time": [
+                        np.nan,
+                        np.nan,
+                        0,
+                        0,
+                    ],
+                    "weekend_daytime_text_median_inter_event_time": [0, 0, 0, 0],
+                    "weekend_daytime_call_median_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_text_skewness_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_call_skewness_inter_event_time": [
+                        0,
+                        0,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_skewness_inter_event_time": [0, 0, 0, 0],
+                    "weekend_nighttime_call_skewness_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_text_skewness_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_call_skewness_inter_event_time": [
+                        np.nan,
+                        np.nan,
+                        0,
+                        0,
+                    ],
+                    "weekend_daytime_text_skewness_inter_event_time": [0, 0, 0, 0],
+                    "weekend_daytime_call_skewness_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_text_kurtosis_inter_event_time": [0, 0, 0, 0],
+                    "weekday_nighttime_call_kurtosis_inter_event_time": [
+                        0,
+                        0,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_kurtosis_inter_event_time": [0, 0, 0, 0],
+                    "weekend_nighttime_call_kurtosis_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_text_kurtosis_inter_event_time": [0, 0, 0, 0],
+                    "weekday_daytime_call_kurtosis_inter_event_time": [
+                        np.nan,
+                        np.nan,
+                        0,
+                        0,
+                    ],
+                    "weekend_daytime_text_kurtosis_inter_event_time": [0, 0, 0, 0],
+                    "weekend_daytime_call_kurtosis_inter_event_time": [0, 0, 0, 0],
+                }
+
+            case "get_pareto_principle_interaction_stats":
+                expected_results = {
+                    "weekday_nighttime_text_pareto_principle_interaction_fraction": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_nighttime_call_pareto_principle_interaction_fraction": [
+                        0,
+                        0,
+                        1,
+                        1,
+                    ],
+                    "weekend_nighttime_text_pareto_principle_interaction_fraction": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekend_nighttime_call_pareto_principle_interaction_fraction": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_daytime_text_pareto_principle_interaction_fraction": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekday_daytime_call_pareto_principle_interaction_fraction": [
+                        1,
+                        1,
+                        0,
+                        0,
+                    ],
+                    "weekend_daytime_text_pareto_principle_interaction_fraction": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "weekend_daytime_call_pareto_principle_interaction_fraction": [
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                }
+
+            case "get_pareto_principle_call_duration_stats":
+                expected_results = {
+                    "weekday_nighttime_pareto_call_duration_fraction": [0, 0, 1, 1],
+                    "weekend_nighttime_pareto_call_duration_fraction": [0, 0, 0, 0],
+                    "weekday_daytime_pareto_call_duration_fraction": [1, 1, 0, 0],
+                    "weekend_daytime_pareto_call_duration_fraction": [0, 0, 0, 0],
+                }
+
+            case "get_number_of_interactions_per_user":
+                expected_results = {
+                    "weekday_nighttime_text_incoming_num_interactions": [0, 0, 0, 0],
+                    "weekday_nighttime_call_incoming_num_interactions": [
+                        0,
+                        0,
+                        0,
+                        np.nan,
+                    ],
+                    "weekend_nighttime_text_incoming_num_interactions": [0, 0, 0, 0],
+                    "weekend_nighttime_call_incoming_num_interactions": [0, 0, 0, 0],
+                    "weekday_daytime_text_incoming_num_interactions": [0, 0, 0, 0],
+                    "weekday_daytime_call_incoming_num_interactions": [
+                        np.nan,
+                        np.nan,
+                        1,
+                        0,
+                    ],
+                    "weekend_daytime_text_incoming_num_interactions": [0, 0, 0, 0],
+                    "weekend_daytime_call_incoming_num_interactions": [0, 0, 0, 0],
+                    "weekday_nighttime_text_outgoing_num_interactions": [0, 0, 0, 0],
+                    "weekday_nighttime_call_outgoing_num_interactions": [0, 0, 0, 1],
+                    "weekend_nighttime_text_outgoing_num_interactions": [0, 0, 0, 0],
+                    "weekend_nighttime_call_outgoing_num_interactions": [0, 0, 0, 0],
+                    "weekday_daytime_text_outgoing_num_interactions": [0, 0, 0, 0],
+                    "weekday_daytime_call_outgoing_num_interactions": [1, 1, np.nan, 0],
+                    "weekend_daytime_text_outgoing_num_interactions": [0, 0, 0, 0],
+                    "weekend_daytime_call_outgoing_num_interactions": [0, 0, 0, 0],
+                }
 
             case _:
                 raise ValueError(f"Function {function} does not exist.")
@@ -1261,6 +1464,10 @@ class TestFeaturizerInference:
             "get_entropy_of_interactions_per_caller",
             "get_outgoing_interaction_fraction_stats",
             "get_interaction_stats_per_caller",
+            "get_inter_event_time_stats",
+            "get_pareto_principle_interaction_stats",
+            "get_pareto_principle_call_duration_stats",
+            "get_number_of_interactions_per_user",
         ],
     )
     def test_featurize_function(
