@@ -1793,6 +1793,13 @@ class TestFeaturizerInference:
                         0.0,
                     ],
                 }
+            case "get_average_num_of_interactions_from_home_antennas":
+                expected_results = {
+                    "weekday_nighttime_mean_home_antenna_interaction": [0.0, 0.0],
+                    "weekend_nighttime_mean_home_antenna_interaction": [0.0, 0.0],
+                    "weekday_daytime_mean_home_antenna_interaction": [0.0, 0.0],
+                    "weekend_daytime_mean_home_antenna_interaction": [0.0, 0.0],
+                }
 
             case _:
                 raise ValueError(f"Function {function} does not exist.")
@@ -1820,6 +1827,7 @@ class TestFeaturizerInference:
             "get_number_of_antennas",
             "get_entropy_of_antennas_per_caller",
             "get_pareto_principle_antennas",
+            "get_average_num_of_interactions_from_home_antennas",
         ],
     )
     def test_featurize_function(
