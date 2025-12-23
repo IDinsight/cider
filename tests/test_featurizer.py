@@ -1445,6 +1445,14 @@ class TestFeaturizerInference:
                     "weekend_daytime_call_outgoing_num_interactions": [0, 0, 0, 0],
                 }
 
+            case "get_number_of_antennas":
+                expected_results = {
+                    "weekday_nighttime_num_unique_antennas": [0, 0, 0, 1],
+                    "weekend_nighttime_num_unique_antennas": [0, 0, 0, 0],
+                    "weekday_daytime_num_unique_antennas": [2, 1, 0, 0],
+                    "weekend_daytime_num_unique_antennas": [0, 0, 1, 0],
+                }
+
             case _:
                 raise ValueError(f"Function {function} does not exist.")
 
@@ -1468,6 +1476,7 @@ class TestFeaturizerInference:
             "get_pareto_principle_interaction_stats",
             "get_pareto_principle_call_duration_stats",
             "get_number_of_interactions_per_user",
+            "get_number_of_antennas",
         ],
     )
     def test_featurize_function(
