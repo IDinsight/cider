@@ -35,19 +35,20 @@ from conftest import (
 )
 import pandas as pd
 import pytest
+from cider.schemas import CallDataRecordData
 from cider.featurizer.dependencies import (
     filter_to_datetime,
     get_spammers_from_cdr_data,
     get_outlier_days_from_cdr_data,
     get_static_diagnostic_statistics,
     get_timeseries_diagnostic_statistics,
-)
-from cider.featurizer.inference import (
     identify_daytime,
     identify_weekend,
     swap_caller_and_recipient,
     identify_and_tag_conversations,
-    identify_active_days,
+)
+from cider.featurizer.inference import (
+    get_active_days,
     get_number_of_contacts_per_caller,
     get_call_duration_stats,
     get_percentage_of_nocturnal_interactions,
@@ -97,6 +98,16 @@ class TestFeaturizerDependencies:
         )
         assert len(filtered_data) == 2
 
+        df.pop("timestamp")
+        with pytest.raises(
+            ValueError, match="Dataframe must contain 'timestamp' column"
+        ):
+            filter_to_datetime(
+                df,
+                filter_start_date=pd.to_datetime("2023-01-02"),
+                filter_end_date=pd.to_datetime("2023-01-03"),
+            )
+
     def test_get_spammers_from_cdr_data(self):
         cdr = pd.DataFrame(CDR_DATA)
         # Add spammer data
@@ -119,6 +130,22 @@ class TestFeaturizerDependencies:
         )
 
         assert spammer_ids == ["spammer_1"]
+
+        for col in [
+            key
+            for key, field in CallDataRecordData.model_fields.items()
+            if field.is_required()
+        ]:
+            cdr_with_spammer_missing = cdr_with_spammer.copy()
+            cdr_with_spammer_missing.rename(columns={col: "wrong_column"}, inplace=True)
+
+            with pytest.raises(
+                ValueError,
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
+            ):
+                get_spammers_from_cdr_data(
+                    cdr_with_spammer_missing, threshold_of_calls_per_day=100
+                )
 
     def test_get_outlier_days_from_cdr_data(self):
         cdr = pd.DataFrame(CDR_DATA)
@@ -144,6 +171,22 @@ class TestFeaturizerDependencies:
         assert pd.to_datetime("2023-01-10").date() in outlier_days
         assert len(outlier_days) == 1
 
+        for col in [
+            key
+            for key, field in CallDataRecordData.model_fields.items()
+            if field.is_required()
+        ]:
+            cdr_with_outlier_missing = cdr_with_outlier.copy()
+            cdr_with_outlier_missing.rename(columns={col: "wrong_column"}, inplace=True)
+
+            with pytest.raises(
+                ValueError,
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
+            ):
+                get_outlier_days_from_cdr_data(
+                    cdr_with_outlier_missing, zscore_threshold=1.0
+                )
+
     @pytest.mark.parametrize(
         "data",
         [
@@ -164,6 +207,14 @@ class TestFeaturizerDependencies:
             assert stats.num_unique_recipients == df["recipient_id"].nunique()
         else:
             assert stats.num_unique_recipients == 0
+
+        for col in ["caller_id", "timestamp"]:
+            df_missing = df.drop(columns=[col])
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id' and 'timestamp' columns",
+            ):
+                get_static_diagnostic_statistics(df_missing)
 
     @pytest.mark.parametrize(
         "data",
@@ -196,8 +247,13 @@ class TestFeaturizerDependencies:
             == timeseries_stats["total_transactions"].sum()
         )
 
-
-class TestFeaturizerInference:
+        for col in ["caller_id", "timestamp"]:
+            df_missing = df.drop(columns=[col])
+            with pytest.raises(
+                ValueError,
+                match="Dataframe must contain 'caller_id' and 'timestamp' columns",
+            ):
+                get_timeseries_diagnostic_statistics(df_missing)
 
     def test_identify_daytime(self, spark):
         spark_cdr_data = spark.createDataFrame(pd.DataFrame(CDR_DATA))
@@ -248,17 +304,18 @@ class TestFeaturizerInference:
         }
 
         for col in [
-            "caller_id",
-            "recipient_id",
-            "caller_antenna_id",
-            "recipient_antenna_id",
+            key
+            for key, field in CallDataRecordData.model_fields.items()
+            if field.is_required()
         ]:
-            spark_cdr_no_col = spark.createDataFrame(pd_cdr_data.drop(columns=[col]))
+            pd_cdr_data_missing = pd_cdr_data.drop(columns=[col])
+            spark_cdr_missing = spark.createDataFrame(pd_cdr_data_missing)
+
             with pytest.raises(
                 ValueError,
-                match="Dataframe must contain 'caller_id', 'recipient_id', 'caller_antenna_id', and 'recipient_antenna_id' columns",
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
             ):
-                swap_caller_and_recipient(spark_cdr_no_col)
+                swap_caller_and_recipient(spark_cdr_missing)
 
     def test_identify_and_tag_conversations(self, spark):
         conversations = {
@@ -288,13 +345,22 @@ class TestFeaturizerInference:
         convo_times = pd_cdr_tagged["conversation"].dropna().unique()
         assert len(convo_times) == 5
 
-        for col in ["caller_id", "recipient_id", "timestamp", "transaction_type"]:
-            spark_cdr_no_col = spark.createDataFrame(pd_cdr_data.drop(columns=[col]))
+        for col in [
+            key
+            for key, field in CallDataRecordData.model_fields.items()
+            if field.is_required()
+        ]:
+            pd_cdr_data_missing = pd_cdr_data.drop(columns=[col])
+            spark_cdr_missing = spark.createDataFrame(pd_cdr_data_missing)
+
             with pytest.raises(
                 ValueError,
-                match="Dataframe must contain 'caller_id', 'recipient_id', 'timestamp', and 'transaction_type' columns",
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
             ):
-                identify_and_tag_conversations(spark_cdr_no_col)
+                identify_and_tag_conversations(spark_cdr_missing)
+
+
+class TestFeaturizerInference:
 
     def test_identify_active_days(self, spark):
         pd_cdr_data = pd.DataFrame(CDR_DATA)
@@ -307,7 +373,7 @@ class TestFeaturizerInference:
         spark_cdr_with_conversations = identify_and_tag_conversations(
             spark_cdr_with_weekend
         )
-        spark_cdr_active_days = identify_active_days(spark_cdr_with_conversations)
+        spark_cdr_active_days = get_active_days(spark_cdr_with_conversations)
 
         pd_cdr_active_days = spark_cdr_active_days.toPandas()
 
@@ -344,7 +410,7 @@ class TestFeaturizerInference:
                 ValueError,
                 match="Dataframe must contain 'caller_id', 'timestamp', 'day', 'is_weekend', and 'is_daytime' columns",
             ):
-                identify_active_days(spark_cdr_no_col)
+                get_active_days(spark_cdr_no_col)
 
     def test_get_number_of_contacts_per_caller(self, spark):
         pd_cdr_data = pd.DataFrame(CDR_DATA)
@@ -632,6 +698,7 @@ class TestFeaturizerInference:
             ),
             "transaction_scope": ["domestic"] * 6,
             "transaction_type": ["text", "text", "call", "text", "text", "text"],
+            "duration": [0] * 6,
         }
         pd_cdr_data = pd.DataFrame(conversations)
         spark_cdr_data = spark.createDataFrame(pd_cdr_data)
@@ -716,6 +783,7 @@ class TestFeaturizerInference:
             ),
             "transaction_scope": ["domestic"] * 6,
             "transaction_type": ["text", "text", "call", "text", "text", "text"],
+            "duration": [0.0] * 6,
         }
         pd_cdr_data = pd.DataFrame(conversations)
         spark_cdr_data = spark.createDataFrame(pd_cdr_data)
