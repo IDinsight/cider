@@ -31,6 +31,7 @@ from typing import Annotated
 from enum import Enum
 from cider.schemas import (
     CallDataRecordData,
+    MobileDataUsageData,
     MobileMoneyTransactionData,
     MobileMoneyTransactionType,
 )
@@ -44,6 +45,30 @@ class DirectionOfTransactionEnum(str, Enum):
 
     INCOMING = "incoming"
     OUTGOING = "outgoing"
+
+
+class AllowedPivotColumnsEnum(str, Enum):
+    """
+    Enum for allowed pivot columns.
+    """
+
+    IS_WEEKEND = "is_weekend"
+    IS_DAYTIME = "is_daytime"
+    TRANSACTION_TYPE = "transaction_type"
+
+
+class StatsComputationMethodEnum(str, Enum):
+    """
+    Enum for statistics computation method.
+    """
+
+    MEAN = "mean"
+    MIN = "min"
+    MAX = "max"
+    STD = "std"
+    MEDIAN = "median"
+    SKEWNESS = "skewness"
+    KURTOSIS = "kurtosis"
 
 
 class DataDiagnosticStatistics(BaseModel):
@@ -67,16 +92,6 @@ class DataDiagnosticStatistics(BaseModel):
     ]
 
 
-class AllowedPivotColumnsEnum(str, Enum):
-    """
-    Enum for allowed pivot columns.
-    """
-
-    IS_WEEKEND = "is_weekend"
-    IS_DAYTIME = "is_daytime"
-    TRANSACTION_TYPE = "transaction_type"
-
-
 class CallDataRecordTagged(CallDataRecordData):
     """
     Schema for call data record with tagged conversations.
@@ -98,6 +113,19 @@ class CallDataRecordTagged(CallDataRecordData):
     ]
     conversation: Annotated[
         datetime | None, Field(description="Timestamp of the conversation start")
+    ]
+
+
+class MobileDataUsageDatawithDay(MobileDataUsageData):
+    """
+    Schema for mobile data usage data with day information.
+    Inherits from MobileDataUsageData and adds an additional field for day.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    day: Annotated[
+        date, Field(description="Date without timestamp when the data usage occurred")
     ]
 
 

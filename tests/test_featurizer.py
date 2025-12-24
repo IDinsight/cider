@@ -42,6 +42,7 @@ from cider.featurizer.schemas import (
     CallDataRecordTagged,
     MobileMoneyDataWithDirection,
     MobileMoneyDatawithDay,
+    MobileDataUsageDatawithDay,
 )
 from cider.featurizer.dependencies import (
     filter_to_datetime,
@@ -78,6 +79,7 @@ from cider.featurizer.inference import (
     get_international_interaction_statistics,
     get_radius_of_gyration,
     get_mobile_data_stats,
+    get_mobile_money_amount_stats,
 )
 
 FUNCTION_MAP = {
@@ -419,7 +421,7 @@ class TestFeaturizerDependencies:
                 identify_mobile_money_transaction_direction(spark_mobile_money_missing)
 
 
-class TestFeaturizerInference:
+class TestFeaturizerInferenceCDRData:
 
     @pytest.fixture
     def spark_cdr_with_conversations(self, spark):
@@ -1983,6 +1985,9 @@ class TestFeaturizerInference:
                     spark_cdr_with_conversations, spark_antenna_no_col
                 )
 
+
+class TestFeaturizerInferenceMobileData:
+
     def test_get_mobile_data_stats(self, spark):
         pd_mobile_data = pd.DataFrame(MOBILE_DATA_USAGE_DATA)
         pd_mobile_data.loc[:, "day"] = pd_mobile_data["timestamp"].dt.date
@@ -1997,20 +2002,290 @@ class TestFeaturizerInference:
             [
                 "caller_id",
                 "total_data_volume",
-                "mean_daily_data_volume",
-                "min_daily_data_volume",
-                "max_daily_data_volume",
-                "stddev_daily_data_volume",
+                "mean_volume",
+                "min_volume",
+                "max_volume",
+                "std_volume",
                 "num_unique_days_with_data_usage",
             ]
         ) == set(pd_mobile_data_stats.columns)
 
-        for col in ["caller_id", "day", "volume"]:
+        for col in [
+            k
+            for k, field in MobileDataUsageDatawithDay.model_fields.items()
+            if field.is_required()
+        ]:
             spark_mobile_data_no_col = spark.createDataFrame(
                 pd_mobile_data.drop(columns=[col])
             )
             with pytest.raises(
                 ValueError,
-                match="Dataframe must contain 'caller_id', 'day', and 'volume' columns",
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
             ):
                 get_mobile_data_stats(spark_mobile_data_no_col)
+
+
+class TestFeaturizerInferenceMobileMoney:
+
+    FUNCTION_MAP = {
+        "get_mobile_money_amount_stats": get_mobile_money_amount_stats,
+    }
+
+    @pytest.fixture
+    def spark_mobile_money_with_direction(self, spark):
+        pd_mobile_money_data = pd.DataFrame(MOBILE_MONEY_TRANSACTION_DATA)
+        pd_mobile_money_data.loc[:, "day"] = pd_mobile_money_data["timestamp"].dt.date
+
+        spark_mobile_money_data = spark.createDataFrame(pd_mobile_money_data)
+        spark_mobile_money_direction = identify_mobile_money_transaction_direction(
+            spark_mobile_money_data
+        )
+        return spark_mobile_money_direction
+
+    def _get_expected_results(self, function):
+        match function:
+            case "get_mobile_money_amount_stats":
+                expected_results = {
+                    "billpay_first(total_mobile_money_transaction_amount)": [
+                        1500.0,
+                        np.nan,
+                        1500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(mean_amount)": [
+                        1500.0,
+                        np.nan,
+                        1500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(min_amount)": [
+                        1500.0,
+                        np.nan,
+                        1500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(max_amount)": [
+                        1500.0,
+                        np.nan,
+                        1500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(std_amount)": [
+                        0.0,
+                        np.nan,
+                        0.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashin_first(total_mobile_money_transaction_amount)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1000.0,
+                        1000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(mean_amount)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1000.0,
+                        1000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(min_amount)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1000.0,
+                        1000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(max_amount)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1000.0,
+                        1000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(std_amount)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        0.0,
+                        np.nan,
+                    ],
+                    "cashout_first(total_mobile_money_transaction_amount)": [
+                        1500.0,
+                        np.nan,
+                        1500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(mean_amount)": [
+                        1500.0,
+                        np.nan,
+                        1500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(min_amount)": [
+                        1500.0,
+                        np.nan,
+                        1500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(max_amount)": [
+                        1500.0,
+                        np.nan,
+                        1500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(std_amount)": [
+                        0.0,
+                        np.nan,
+                        0.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "other_first(total_mobile_money_transaction_amount)": [
+                        np.nan,
+                        4000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        4000.0,
+                    ],
+                    "other_first(mean_amount)": [
+                        np.nan,
+                        2000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        2000.0,
+                    ],
+                    "other_first(min_amount)": [
+                        np.nan,
+                        2000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        2000.0,
+                    ],
+                    "other_first(max_amount)": [
+                        np.nan,
+                        2000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        2000.0,
+                    ],
+                    "other_first(std_amount)": [
+                        np.nan,
+                        0.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        0.0,
+                    ],
+                    "p2p_first(total_mobile_money_transaction_amount)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1000.0,
+                        1000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(mean_amount)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1000.0,
+                        1000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(min_amount)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1000.0,
+                        1000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(max_amount)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1000.0,
+                        1000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(std_amount)": [np.nan, np.nan, np.nan, 0.0, 0.0, np.nan],
+                }
+            case _:
+                raise ValueError(f"Function {function} does not exist.")
+
+        return pd.DataFrame(expected_results).reset_index(drop=True)
+
+    @pytest.mark.parametrize(
+        "function_to_test",
+        [
+            "get_mobile_money_amount_stats",
+        ],
+    )
+    def test_featurize_function(
+        self, spark_mobile_money_with_direction, spark, function_to_test
+    ):
+        expected_results = self._get_expected_results(function_to_test)
+        func = self.FUNCTION_MAP[function_to_test]
+        spark_function_output = func(spark_mobile_money_with_direction)
+        pd_function_output = spark_function_output.toPandas()
+        print(pd_function_output.to_dict(orient="list"))
+
+        assert set(
+            [
+                "primary_id",
+                *expected_results.keys(),
+            ]
+        ) == set(pd_function_output.columns)
+        assert (
+            deepdiff.DeepDiff(
+                pd_function_output.reset_index(drop=True).drop(columns=["primary_id"]),
+                expected_results,
+                ignore_order=True,
+            )
+            == {}
+        )
+
+        pd_mobile_money_with_direction = spark_mobile_money_with_direction.toPandas()
+        for col in [
+            k
+            for k, field in MobileMoneyDataWithDirection.model_fields.items()
+            if field.is_required()
+        ]:
+            spark_mobile_money_no_col = spark.createDataFrame(
+                pd_mobile_money_with_direction.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
+            ):
+                func(spark_mobile_money_no_col)

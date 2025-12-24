@@ -34,6 +34,7 @@ from .schemas import (
     DataDiagnosticStatistics,
     AllowedPivotColumnsEnum,
     DirectionOfTransactionEnum,
+    StatsComputationMethodEnum,
     MobileMoneyDatawithDay,
 )
 import pyspark.sql.functions as F
@@ -68,25 +69,47 @@ from cider.utils import _validate_dataframe
 import numpy as np
 
 
-def _get_summary_stats_cols(col_name: str) -> list:
+def _get_summary_stats_cols(
+    col_name: str,
+    summary_stats: list[StatsComputationMethodEnum] = [
+        e for e in StatsComputationMethodEnum
+    ],
+) -> list:
     """
     Get summary statistics columns for a given column name.
 
     Args:
-        col_name: name of the column to get summary statistics for
+        col_name: name of the column for which to get summary statistics
+        summary_stats: list of summary statistics to compute. Defaults to all statistics.
+
+    Returns:
+        list: list of summary statistics columns
     """
-    return [
-        pys_mean(col_name).alias(f"mean_{col_name}"),
-        pys_min(col_name).alias(f"min_{col_name}"),
-        pys_max(col_name).alias(f"max_{col_name}"),
-        stddev_pop(col_name).alias(f"std_{col_name}"),
-        expr(f"percentile_approx({col_name}, 0.5)").alias(f"median_{col_name}"),
-        skewness(col_name).alias(f"skewness_{col_name}"),
-        kurtosis(col_name).alias(f"kurtosis_{col_name}"),
-    ]
+    summary_stats_mapping = {
+        StatsComputationMethodEnum.MEAN: pys_mean,
+        StatsComputationMethodEnum.MIN: pys_min,
+        StatsComputationMethodEnum.MAX: pys_max,
+        StatsComputationMethodEnum.STD: stddev_pop,
+        StatsComputationMethodEnum.MEDIAN: expr(f"percentile_approx({col_name}, 0.5)"),
+        StatsComputationMethodEnum.SKEWNESS: skewness,
+        StatsComputationMethodEnum.KURTOSIS: kurtosis,
+    }
+
+    agg_stats = []
+
+    for stat in summary_stats:
+        agg_func = summary_stats_mapping.get(stat)
+        if agg_func is None:
+            continue
+        if stat != StatsComputationMethodEnum.MEDIAN:
+            agg_stats.append(agg_func(col_name).alias(f"{stat.value}_{col_name}"))
+        else:
+            agg_stats.append(agg_func.alias(f"{stat.value}_{col_name}"))
+
+    return agg_stats
 
 
-def _get_agg_columns_by_time_and_transaction_type(
+def _get_agg_columns_by_cdr_time_and_transaction_type(
     col_name: str,
     cols_to_use_for_pivot: list[AllowedPivotColumnsEnum],
     agg_func: F = pys_sum,
