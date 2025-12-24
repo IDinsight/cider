@@ -193,3 +193,27 @@ class RechargeDataWithDay(RechargeData):
     day: Annotated[
         date, Field(description="Date without timestamp when the transaction occurred")
     ]
+
+
+class AntennaDataGeometry(BaseModel):
+    """
+    Schema for antenna data with geometry information.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    caller_antenna_id: Annotated[
+        str, Field(description="Unique identifier for the antenna")
+    ]
+    latitude: Annotated[float, Field(description="Latitude of the antenna location")]
+    longitude: Annotated[float, Field(description="Longitude of the antenna location")]
+
+
+class AntennaDataGeometryWithRegion(AntennaDataGeometry):
+    """
+    Schema for antenna data with region information.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    region: Annotated[str, Field(description="Region of the antenna location")]
