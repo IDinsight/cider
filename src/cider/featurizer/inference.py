@@ -47,10 +47,10 @@ from .schemas import (
     DirectionOfTransactionEnum,
     AllowedPivotColumnsEnum,
     CallDataRecordTagged,
-    MobileDataUsageDatawithDay,
+    MobileDataUsageDataWithDay,
     StatsComputationMethodEnum,
     MobileMoneyDataWithDirection,
-    RechargeDatawithDay,
+    RechargeDataWithDay,
 )
 from .dependencies import (
     _get_agg_columns_by_cdr_time_and_transaction_type,
@@ -1140,7 +1140,7 @@ def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with mobile data usage statistics columns
     """
-    _validate_dataframe(spark_df, MobileDataUsageDatawithDay)
+    _validate_dataframe(spark_df, MobileDataUsageDataWithDay)
     summary_stats_aggs = _get_summary_stats_cols(
         "volume",
         [
@@ -1286,7 +1286,7 @@ def get_recharge_amount_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
         df: Dataframe with recharge amount statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, RechargeDatawithDay)
+    _validate_dataframe(spark_df, RechargeDataWithDay)
 
     summary_stats_cols = _get_summary_stats_cols(
         "amount",
@@ -1305,3 +1305,6 @@ def get_recharge_amount_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
         *summary_stats_cols,
     )
     return summary_stats_df
+
+
+# Location features

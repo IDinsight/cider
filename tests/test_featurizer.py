@@ -41,9 +41,9 @@ from cider.schemas import CallDataRecordData
 from cider.featurizer.schemas import (
     CallDataRecordTagged,
     MobileMoneyDataWithDirection,
-    MobileMoneyDatawithDay,
-    MobileDataUsageDatawithDay,
-    RechargeDatawithDay,
+    MobileMoneyDataWithDay,
+    MobileDataUsageDataWithDay,
+    RechargeDataWithDay,
 )
 from cider.featurizer.dependencies import (
     filter_to_datetime,
@@ -387,7 +387,7 @@ class TestFeaturizerDependencies:
 
         for col in [
             key
-            for key, field in MobileMoneyDatawithDay.model_fields.items()
+            for key, field in MobileMoneyDataWithDay.model_fields.items()
             if field.is_required()
         ]:
             pd_mobile_money_data_missing = pd_mobile_money_data.drop(columns=[col])
@@ -2016,7 +2016,7 @@ class TestFeaturizerInferenceMobileData:
 
         for col in [
             k
-            for k, field in MobileDataUsageDatawithDay.model_fields.items()
+            for k, field in MobileDataUsageDataWithDay.model_fields.items()
             if field.is_required()
         ]:
             spark_mobile_data_no_col = spark.createDataFrame(
@@ -2758,7 +2758,7 @@ class TestFeaturizerInferenceRechargeData:
 
         for col in [
             k
-            for k, field in RechargeDatawithDay.model_fields.items()
+            for k, field in RechargeDataWithDay.model_fields.items()
             if field.is_required()
         ]:
             spark_recharge_data_no_col = spark.createDataFrame(

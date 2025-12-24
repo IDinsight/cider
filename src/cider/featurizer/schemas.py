@@ -117,7 +117,7 @@ class CallDataRecordTagged(CallDataRecordData):
     ]
 
 
-class MobileDataUsageDatawithDay(MobileDataUsageData):
+class MobileDataUsageDataWithDay(MobileDataUsageData):
     """
     Schema for mobile data usage data with day information.
     Inherits from MobileDataUsageData and adds an additional field for day.
@@ -130,7 +130,7 @@ class MobileDataUsageDatawithDay(MobileDataUsageData):
     ]
 
 
-class MobileMoneyDatawithDay(MobileMoneyTransactionData):
+class MobileMoneyDataWithDay(MobileMoneyTransactionData):
     """
     Schema for mobile money transaction data with day information.
     Inherits from MobileMoneyTransactionData and adds an additional field for day.
@@ -182,7 +182,7 @@ class MobileMoneyDataWithDirection(BaseModel):
     ]
 
 
-class RechargeDatawithDay(RechargeData):
+class RechargeDataWithDay(RechargeData):
     """
     Schema for recharge data with day information.
     Inherits from RechargeData and adds an additional field for day.

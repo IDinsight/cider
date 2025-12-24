@@ -35,7 +35,7 @@ from .schemas import (
     AllowedPivotColumnsEnum,
     DirectionOfTransactionEnum,
     StatsComputationMethodEnum,
-    MobileMoneyDatawithDay,
+    MobileMoneyDataWithDay,
 )
 import pyspark.sql.functions as F
 from pyspark.sql.functions import (
@@ -591,7 +591,7 @@ def identify_mobile_money_transaction_direction(
     """
 
     # Validate input dataframe
-    _validate_dataframe(spark_df, MobileMoneyDatawithDay)
+    _validate_dataframe(spark_df, MobileMoneyDataWithDay)
 
     outgoing_interactions = (
         spark_df.select(
