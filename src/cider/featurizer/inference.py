@@ -1076,6 +1076,7 @@ def get_average_num_of_interactions_from_home_antennas(
     return home_interaction_df.groupby("caller_id").agg(*aggs)
 
 
+# International features
 def get_international_interaction_statistics(
     spark_df: SparkDataFrame,
 ) -> SparkDataFrame:
