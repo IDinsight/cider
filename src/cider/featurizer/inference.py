@@ -1200,7 +1200,7 @@ def get_mobile_money_amount_stats(
     Get mobile money amount statistics per caller in the dataframe.
 
     Args:
-        spark_df: Dataframe with 'primary_id', 'correspondent_id', 'transaction_type', 'amount', 'day columns
+        spark_df: Dataframe with 'primary_id', 'correspondent_id', 'transaction_type', 'amount', 'day' columns
 
     Returns:
         df: Dataframe with mobile money transaction statistics columns

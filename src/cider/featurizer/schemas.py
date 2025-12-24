@@ -96,7 +96,7 @@ class DataDiagnosticStatistics(BaseModel):
 class CallDataRecordTagged(CallDataRecordData):
     """
     Schema for call data record with tagged conversations.
-    Inherits from CallDataRecordData and adds an additional field for tagged conversation.
+    Inherits from CallDataRecordData and adds additional fields for tagged conversation.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -146,7 +146,6 @@ class MobileMoneyDataWithDay(MobileMoneyTransactionData):
 class MobileMoneyDataWithDirection(BaseModel):
     """
     Schema for mobile money transaction data with direction of transaction.
-    Inherits from MobileMoneyTransactionData and adds an additional field for direction of transaction.
     """
 
     model_config = ConfigDict(from_attributes=True)
