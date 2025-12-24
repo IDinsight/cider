@@ -1182,8 +1182,11 @@ def get_mobile_money_amount_stats(
     ]
     summary_stats_aggs = _get_summary_stats_cols("amount", summary_stats_cols)
 
+    summary_stats_all = spark_df.groupby("primary_id").agg(
+        *summary_stats_aggs,
+    )
+
     summary_stats_df = spark_df.groupby("primary_id", "transaction_type").agg(
-        pys_sum("amount").alias("total_mobile_money_transaction_amount"),
         *summary_stats_aggs,
     )
     summary_stats_cols = [col for col in summary_stats_df.columns if "amount" in col]
@@ -1191,6 +1194,35 @@ def get_mobile_money_amount_stats(
         summary_stats_df.groupby("primary_id")
         .pivot("transaction_type")
         .agg(*[first(col_name) for col_name in summary_stats_cols])
+    )
+    pivot_df = pivot_df.join(summary_stats_all, on="primary_id", how="inner")
+
+    return pivot_df
+
+
+def get_mobile_money_transaction_stats(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get mobile money transaction statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'primary_id', 'correspondent_id', 'transaction_type' columns
+
+    Returns:
+        df: Dataframe with mobile money transaction statistics columns
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+
+    summary_stats_df = spark_df.groupby("primary_id", "transaction_type").agg(
+        count("correspondent_id").alias("num_transactions"),
+        countDistinct("correspondent_id").alias("num_unique_correspondents"),
+    )
+    pivot_df = (
+        summary_stats_df.groupby("primary_id")
+        .pivot("transaction_type")
+        .agg(first("num_transactions"), first("num_unique_correspondents"))
     )
 
     return pivot_df

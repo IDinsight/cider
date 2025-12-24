@@ -80,6 +80,7 @@ from cider.featurizer.inference import (
     get_radius_of_gyration,
     get_mobile_data_stats,
     get_mobile_money_amount_stats,
+    get_mobile_money_transaction_stats,
 )
 
 FUNCTION_MAP = {
@@ -2029,6 +2030,7 @@ class TestFeaturizerInferenceMobileMoney:
 
     FUNCTION_MAP = {
         "get_mobile_money_amount_stats": get_mobile_money_amount_stats,
+        "get_mobile_money_transaction_stats": get_mobile_money_transaction_stats,
     }
 
     @pytest.fixture
@@ -2046,14 +2048,6 @@ class TestFeaturizerInferenceMobileMoney:
         match function:
             case "get_mobile_money_amount_stats":
                 expected_results = {
-                    "billpay_first(total_mobile_money_transaction_amount)": [
-                        1500.0,
-                        np.nan,
-                        1500.0,
-                        np.nan,
-                        np.nan,
-                        np.nan,
-                    ],
                     "billpay_first(mean_amount)": [
                         1500.0,
                         np.nan,
@@ -2084,14 +2078,6 @@ class TestFeaturizerInferenceMobileMoney:
                         0.0,
                         np.nan,
                         np.nan,
-                        np.nan,
-                    ],
-                    "cashin_first(total_mobile_money_transaction_amount)": [
-                        np.nan,
-                        np.nan,
-                        np.nan,
-                        1000.0,
-                        1000.0,
                         np.nan,
                     ],
                     "cashin_first(mean_amount)": [
@@ -2126,14 +2112,6 @@ class TestFeaturizerInferenceMobileMoney:
                         0.0,
                         np.nan,
                     ],
-                    "cashout_first(total_mobile_money_transaction_amount)": [
-                        1500.0,
-                        np.nan,
-                        1500.0,
-                        np.nan,
-                        np.nan,
-                        np.nan,
-                    ],
                     "cashout_first(mean_amount)": [
                         1500.0,
                         np.nan,
@@ -2165,14 +2143,6 @@ class TestFeaturizerInferenceMobileMoney:
                         np.nan,
                         np.nan,
                         np.nan,
-                    ],
-                    "other_first(total_mobile_money_transaction_amount)": [
-                        np.nan,
-                        4000.0,
-                        np.nan,
-                        np.nan,
-                        np.nan,
-                        4000.0,
                     ],
                     "other_first(mean_amount)": [
                         np.nan,
@@ -2206,14 +2176,6 @@ class TestFeaturizerInferenceMobileMoney:
                         np.nan,
                         0.0,
                     ],
-                    "p2p_first(total_mobile_money_transaction_amount)": [
-                        np.nan,
-                        np.nan,
-                        np.nan,
-                        1000.0,
-                        1000.0,
-                        np.nan,
-                    ],
                     "p2p_first(mean_amount)": [
                         np.nan,
                         np.nan,
@@ -2239,7 +2201,96 @@ class TestFeaturizerInferenceMobileMoney:
                         np.nan,
                     ],
                     "p2p_first(std_amount)": [np.nan, np.nan, np.nan, 0.0, 0.0, np.nan],
+                    "mean_amount": [1500.0, 2000.0, 1500.0, 1000.0, 1000.0, 2000.0],
+                    "min_amount": [1500.0, 2000.0, 1500.0, 1000.0, 1000.0, 2000.0],
+                    "max_amount": [1500.0, 2000.0, 1500.0, 1000.0, 1000.0, 2000.0],
+                    "std_amount": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 }
+
+            case "get_mobile_money_transaction_stats":
+                expected_results = {
+                    "billpay_first(num_transactions)": [
+                        1.0,
+                        np.nan,
+                        1.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(num_unique_correspondents)": [
+                        1.0,
+                        np.nan,
+                        1.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashin_first(num_transactions)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1.0,
+                        1.0,
+                        np.nan,
+                    ],
+                    "cashin_first(num_unique_correspondents)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1.0,
+                        1.0,
+                        np.nan,
+                    ],
+                    "cashout_first(num_transactions)": [
+                        1.0,
+                        np.nan,
+                        1.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(num_unique_correspondents)": [
+                        1.0,
+                        np.nan,
+                        1.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "other_first(num_transactions)": [
+                        np.nan,
+                        2.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        2.0,
+                    ],
+                    "other_first(num_unique_correspondents)": [
+                        np.nan,
+                        1.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1.0,
+                    ],
+                    "p2p_first(num_transactions)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1.0,
+                        1.0,
+                        np.nan,
+                    ],
+                    "p2p_first(num_unique_correspondents)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        1.0,
+                        1.0,
+                        np.nan,
+                    ],
+                }
+
             case _:
                 raise ValueError(f"Function {function} does not exist.")
 
@@ -2249,6 +2300,7 @@ class TestFeaturizerInferenceMobileMoney:
         "function_to_test",
         [
             "get_mobile_money_amount_stats",
+            "get_mobile_money_transaction_stats",
         ],
     )
     def test_featurize_function(
