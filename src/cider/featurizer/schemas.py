@@ -34,6 +34,7 @@ from cider.schemas import (
     MobileDataUsageData,
     MobileMoneyTransactionData,
     MobileMoneyTransactionType,
+    RechargeData,
 )
 from datetime import date, datetime
 
@@ -178,4 +179,17 @@ class MobileMoneyDataWithDirection(BaseModel):
     direction_of_transaction: Annotated[
         DirectionOfTransactionEnum,
         Field(description="Direction of the transaction (incoming or outgoing)"),
+    ]
+
+
+class RechargeDatawithDay(RechargeData):
+    """
+    Schema for recharge data with day information.
+    Inherits from RechargeData and adds an additional field for day.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    day: Annotated[
+        date, Field(description="Date without timestamp when the transaction occurred")
     ]

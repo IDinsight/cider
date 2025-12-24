@@ -50,6 +50,7 @@ from .schemas import (
     MobileDataUsageDatawithDay,
     StatsComputationMethodEnum,
     MobileMoneyDataWithDirection,
+    RechargeDatawithDay,
 )
 from .dependencies import (
     _get_agg_columns_by_cdr_time_and_transaction_type,
@@ -1271,3 +1272,36 @@ def get_mobile_money_balance_stats(
     pivot_df = pivot_df.join(summary_stats_all, on="primary_id", how="inner")
 
     return pivot_df
+
+
+# Recharges features
+def get_recharge_amount_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get recharge amount statistics per user in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'amount' columns
+
+    Returns:
+        df: Dataframe with recharge amount statistics columns
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, RechargeDatawithDay)
+
+    summary_stats_cols = _get_summary_stats_cols(
+        "amount",
+        [
+            StatsComputationMethodEnum.MEAN,
+            StatsComputationMethodEnum.MIN,
+            StatsComputationMethodEnum.MAX,
+            StatsComputationMethodEnum.STD,
+        ],
+    )
+
+    summary_stats_df = spark_df.groupby("caller_id").agg(
+        pys_sum("amount").alias("total_recharge_amount"),
+        count("amount").alias("num_recharges"),
+        countDistinct("day").alias("num_unique_recharge_days"),
+        *summary_stats_cols,
+    )
+    return summary_stats_df

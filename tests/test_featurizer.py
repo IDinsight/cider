@@ -43,6 +43,7 @@ from cider.featurizer.schemas import (
     MobileMoneyDataWithDirection,
     MobileMoneyDatawithDay,
     MobileDataUsageDatawithDay,
+    RechargeDatawithDay,
 )
 from cider.featurizer.dependencies import (
     filter_to_datetime,
@@ -82,6 +83,7 @@ from cider.featurizer.inference import (
     get_mobile_money_amount_stats,
     get_mobile_money_transaction_stats,
     get_mobile_money_balance_stats,
+    get_recharge_amount_stats,
 )
 
 
@@ -2717,3 +2719,53 @@ class TestFeaturizerInferenceMobileMoney:
                 match=f"The following required columns are missing from the dataframe: {set([col])}",
             ):
                 func(spark_mobile_money_no_col)
+
+
+class TestFeaturizerInferenceRechargeData:
+
+    def test_get_recharge_amount_stats(self, spark):
+        pd_recharge_data = pd.DataFrame(RECHARGE_DATA)
+        pd_recharge_data.loc[:, "day"] = pd_recharge_data["timestamp"].dt.date
+
+        spark_recharge_data = spark.createDataFrame(pd_recharge_data)
+
+        spark_recharge_data_stats = get_recharge_amount_stats(spark_recharge_data)
+        pd_recharge_data_stats = spark_recharge_data_stats.toPandas()
+
+        expected_results = {
+            "total_recharge_amount": [300.0, 200.0, 400.0],
+            "num_recharges": [2.0, 2.0, 2.0],
+            "num_unique_recharge_days": [2.0, 2.0, 2.0],
+            "mean_amount": [150.0, 100.0, 200.0],
+            "min_amount": [150.0, 100.0, 200.0],
+            "max_amount": [150.0, 100.0, 200.0],
+            "std_amount": [0.0, 0.0, 0.0],
+        }
+        expected_results = pd.DataFrame(expected_results).reset_index(drop=True)
+        assert set(["caller_id", *expected_results.columns]) == set(
+            pd_recharge_data_stats.columns
+        )
+        assert (
+            deepdiff.DeepDiff(
+                pd_recharge_data_stats.reset_index(drop=True).drop(
+                    columns=["caller_id"]
+                ),
+                expected_results,
+                ignore_order=True,
+            )
+            == {}
+        )
+
+        for col in [
+            k
+            for k, field in RechargeDatawithDay.model_fields.items()
+            if field.is_required()
+        ]:
+            spark_recharge_data_no_col = spark.createDataFrame(
+                pd_recharge_data.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
+            ):
+                get_recharge_amount_stats(spark_recharge_data_no_col)
