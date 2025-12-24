@@ -1226,3 +1226,48 @@ def get_mobile_money_transaction_stats(
     )
 
     return pivot_df
+
+
+def get_mobile_money_balance_stats(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get mobile money balance statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'primary_id', 'transaction_type', 'balance_before', and 'balance_after' columns
+
+    Returns:
+        df: Dataframe with mobile money balance statistics columns
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+
+    summary_stats_cols = [
+        StatsComputationMethodEnum.MEAN,
+        StatsComputationMethodEnum.MIN,
+        StatsComputationMethodEnum.MAX,
+        StatsComputationMethodEnum.STD,
+    ]
+    summary_stats_aggs = _get_summary_stats_cols(
+        "balance_after", summary_stats_cols
+    ) + _get_summary_stats_cols("balance_before", summary_stats_cols)
+
+    summary_stats_all = spark_df.groupby("primary_id").agg(
+        *summary_stats_aggs,
+    )
+
+    summary_stats_by_type = spark_df.groupby("primary_id", "transaction_type").agg(
+        *summary_stats_aggs,
+    )
+    summary_stats_cols = [
+        col for col in summary_stats_by_type.columns if "balance" in col
+    ]
+    pivot_df = (
+        summary_stats_by_type.groupby("primary_id")
+        .pivot("transaction_type")
+        .agg(*[first(col_name) for col_name in summary_stats_cols])
+    )
+    pivot_df = pivot_df.join(summary_stats_all, on="primary_id", how="inner")
+
+    return pivot_df

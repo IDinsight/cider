@@ -81,30 +81,8 @@ from cider.featurizer.inference import (
     get_mobile_data_stats,
     get_mobile_money_amount_stats,
     get_mobile_money_transaction_stats,
+    get_mobile_money_balance_stats,
 )
-
-FUNCTION_MAP = {
-    "get_active_days": get_active_days,
-    "get_number_of_contacts_per_caller": get_number_of_contacts_per_caller,
-    "get_call_duration_stats": get_call_duration_stats,
-    "get_percentage_of_nocturnal_interactions": get_percentage_of_nocturnal_interactions,
-    "get_percentage_of_initiated_conversations": get_percentage_of_initiated_conversations,
-    "get_percentage_of_initiated_calls": get_percentage_of_initiated_calls,
-    "get_text_response_time_delay_stats": get_text_response_time_delay_stats,
-    "get_text_response_rate": get_text_response_rate,
-    "get_entropy_of_interactions_per_caller": get_entropy_of_interactions_per_caller,
-    "get_outgoing_interaction_fraction_stats": get_outgoing_interaction_fraction_stats,
-    "get_interaction_stats_per_caller": get_interaction_stats_per_caller,
-    "get_inter_event_time_stats": get_inter_event_time_stats,
-    "get_pareto_principle_interaction_stats": get_pareto_principle_interaction_stats,
-    "get_pareto_principle_call_duration_stats": get_pareto_principle_call_duration_stats,
-    "get_number_of_interactions_per_user": get_number_of_interactions_per_user,
-    "get_number_of_antennas": get_number_of_antennas,
-    "get_entropy_of_antennas_per_caller": get_entropy_of_antennas_per_caller,
-    "get_pareto_principle_antennas": get_pareto_principle_antennas,
-    "get_average_num_of_interactions_from_home_antennas": get_average_num_of_interactions_from_home_antennas,
-    "get_international_interaction_statistics": get_international_interaction_statistics,
-}
 
 
 class TestFeaturizerDependencies:
@@ -423,6 +401,29 @@ class TestFeaturizerDependencies:
 
 
 class TestFeaturizerInferenceCDRData:
+
+    FUNCTION_MAP = {
+        "get_active_days": get_active_days,
+        "get_number_of_contacts_per_caller": get_number_of_contacts_per_caller,
+        "get_call_duration_stats": get_call_duration_stats,
+        "get_percentage_of_nocturnal_interactions": get_percentage_of_nocturnal_interactions,
+        "get_percentage_of_initiated_conversations": get_percentage_of_initiated_conversations,
+        "get_percentage_of_initiated_calls": get_percentage_of_initiated_calls,
+        "get_text_response_time_delay_stats": get_text_response_time_delay_stats,
+        "get_text_response_rate": get_text_response_rate,
+        "get_entropy_of_interactions_per_caller": get_entropy_of_interactions_per_caller,
+        "get_outgoing_interaction_fraction_stats": get_outgoing_interaction_fraction_stats,
+        "get_interaction_stats_per_caller": get_interaction_stats_per_caller,
+        "get_inter_event_time_stats": get_inter_event_time_stats,
+        "get_pareto_principle_interaction_stats": get_pareto_principle_interaction_stats,
+        "get_pareto_principle_call_duration_stats": get_pareto_principle_call_duration_stats,
+        "get_number_of_interactions_per_user": get_number_of_interactions_per_user,
+        "get_number_of_antennas": get_number_of_antennas,
+        "get_entropy_of_antennas_per_caller": get_entropy_of_antennas_per_caller,
+        "get_pareto_principle_antennas": get_pareto_principle_antennas,
+        "get_average_num_of_interactions_from_home_antennas": get_average_num_of_interactions_from_home_antennas,
+        "get_international_interaction_statistics": get_international_interaction_statistics,
+    }
 
     @pytest.fixture
     def spark_cdr_with_conversations(self, spark):
@@ -1885,7 +1886,7 @@ class TestFeaturizerInferenceCDRData:
         self, spark_cdr_with_conversations, spark, function_to_test
     ):
         expected_results = self._get_expected_results(function_to_test)
-        func = FUNCTION_MAP[function_to_test]
+        func = self.FUNCTION_MAP[function_to_test]
         spark_function_output = func(spark_cdr_with_conversations)
         pd_function_output = spark_function_output.toPandas()
 
@@ -2031,6 +2032,7 @@ class TestFeaturizerInferenceMobileMoney:
     FUNCTION_MAP = {
         "get_mobile_money_amount_stats": get_mobile_money_amount_stats,
         "get_mobile_money_transaction_stats": get_mobile_money_transaction_stats,
+        "get_mobile_money_balance_stats": get_mobile_money_balance_stats,
     }
 
     @pytest.fixture
@@ -2291,6 +2293,380 @@ class TestFeaturizerInferenceMobileMoney:
                     ],
                 }
 
+            case "get_mobile_money_balance_stats":
+                expected_results = {
+                    "billpay_first(mean_balance_after)": [
+                        4500.0,
+                        np.nan,
+                        4000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(min_balance_after)": [
+                        4500.0,
+                        np.nan,
+                        4000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(max_balance_after)": [
+                        4500.0,
+                        np.nan,
+                        4000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(std_balance_after)": [
+                        0.0,
+                        np.nan,
+                        0.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(mean_balance_before)": [
+                        6000.0,
+                        np.nan,
+                        2500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(min_balance_before)": [
+                        6000.0,
+                        np.nan,
+                        2500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(max_balance_before)": [
+                        6000.0,
+                        np.nan,
+                        2500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "billpay_first(std_balance_before)": [
+                        0.0,
+                        np.nan,
+                        0.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashin_first(mean_balance_after)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        4000.0,
+                        3000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(min_balance_after)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        4000.0,
+                        3000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(max_balance_after)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        4000.0,
+                        3000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(std_balance_after)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        0.0,
+                        np.nan,
+                    ],
+                    "cashin_first(mean_balance_before)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        5000.0,
+                        2000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(min_balance_before)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        5000.0,
+                        2000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(max_balance_before)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        5000.0,
+                        2000.0,
+                        np.nan,
+                    ],
+                    "cashin_first(std_balance_before)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        0.0,
+                        np.nan,
+                    ],
+                    "cashout_first(mean_balance_after)": [
+                        4500.0,
+                        np.nan,
+                        4000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(min_balance_after)": [
+                        4500.0,
+                        np.nan,
+                        4000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(max_balance_after)": [
+                        4500.0,
+                        np.nan,
+                        4000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(std_balance_after)": [
+                        0.0,
+                        np.nan,
+                        0.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(mean_balance_before)": [
+                        6000.0,
+                        np.nan,
+                        2500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(min_balance_before)": [
+                        6000.0,
+                        np.nan,
+                        2500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(max_balance_before)": [
+                        6000.0,
+                        np.nan,
+                        2500.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "cashout_first(std_balance_before)": [
+                        0.0,
+                        np.nan,
+                        0.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                    ],
+                    "other_first(mean_balance_after)": [
+                        np.nan,
+                        5000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        5000.0,
+                    ],
+                    "other_first(min_balance_after)": [
+                        np.nan,
+                        5000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        5000.0,
+                    ],
+                    "other_first(max_balance_after)": [
+                        np.nan,
+                        5000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        5000.0,
+                    ],
+                    "other_first(std_balance_after)": [
+                        np.nan,
+                        0.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        0.0,
+                    ],
+                    "other_first(mean_balance_before)": [
+                        np.nan,
+                        3000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        7000.0,
+                    ],
+                    "other_first(min_balance_before)": [
+                        np.nan,
+                        3000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        7000.0,
+                    ],
+                    "other_first(max_balance_before)": [
+                        np.nan,
+                        3000.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        7000.0,
+                    ],
+                    "other_first(std_balance_before)": [
+                        np.nan,
+                        0.0,
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        0.0,
+                    ],
+                    "p2p_first(mean_balance_after)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        4000.0,
+                        3000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(min_balance_after)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        4000.0,
+                        3000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(max_balance_after)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        4000.0,
+                        3000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(std_balance_after)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        0.0,
+                        np.nan,
+                    ],
+                    "p2p_first(mean_balance_before)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        5000.0,
+                        2000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(min_balance_before)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        5000.0,
+                        2000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(max_balance_before)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        5000.0,
+                        2000.0,
+                        np.nan,
+                    ],
+                    "p2p_first(std_balance_before)": [
+                        np.nan,
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        0.0,
+                        np.nan,
+                    ],
+                    "mean_balance_after": [
+                        4500.0,
+                        5000.0,
+                        4000.0,
+                        4000.0,
+                        3000.0,
+                        5000.0,
+                    ],
+                    "min_balance_after": [
+                        4500.0,
+                        5000.0,
+                        4000.0,
+                        4000.0,
+                        3000.0,
+                        5000.0,
+                    ],
+                    "max_balance_after": [
+                        4500.0,
+                        5000.0,
+                        4000.0,
+                        4000.0,
+                        3000.0,
+                        5000.0,
+                    ],
+                    "std_balance_after": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "mean_balance_before": [
+                        6000.0,
+                        3000.0,
+                        2500.0,
+                        5000.0,
+                        2000.0,
+                        7000.0,
+                    ],
+                    "min_balance_before": [
+                        6000.0,
+                        3000.0,
+                        2500.0,
+                        5000.0,
+                        2000.0,
+                        7000.0,
+                    ],
+                    "max_balance_before": [
+                        6000.0,
+                        3000.0,
+                        2500.0,
+                        5000.0,
+                        2000.0,
+                        7000.0,
+                    ],
+                    "std_balance_before": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                }
+
             case _:
                 raise ValueError(f"Function {function} does not exist.")
 
@@ -2301,6 +2677,7 @@ class TestFeaturizerInferenceMobileMoney:
         [
             "get_mobile_money_amount_stats",
             "get_mobile_money_transaction_stats",
+            "get_mobile_money_balance_stats",
         ],
     )
     def test_featurize_function(
@@ -2310,7 +2687,6 @@ class TestFeaturizerInferenceMobileMoney:
         func = self.FUNCTION_MAP[function_to_test]
         spark_function_output = func(spark_mobile_money_with_direction)
         pd_function_output = spark_function_output.toPandas()
-        print(pd_function_output.to_dict(orient="list"))
 
         assert set(
             [
