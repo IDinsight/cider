@@ -32,8 +32,9 @@ from cider.validation_metrics.dependencies import (
     calculate_weighted_pearsonr,
     convert_threshold_to_percentile,
     calculate_metrics_binary_valued_consumption,
+    calculate_utility,
 )
-from cider.validation_metrics.schemas import HouseholdConsumptionData
+from cider.validation_metrics.schemas import HouseholdConsumptionData, ConsumptionColumn
 from conftest import HOUSEHOLD_CONSUMPTION_DATA
 
 
@@ -53,6 +54,10 @@ class TestValidationMetricsDependencies:
             with pytest.raises(ValueError):
                 calculate_metrics_binary_valued_consumption(
                     household_data_no_cols, 50.0, 50.0
+                )
+            with pytest.raises(ValueError):
+                calculate_utility(
+                    household_data_no_cols, 50.0, ConsumptionColumn.GROUNTRUTH, 1000
                 )
 
     @pytest.mark.parametrize(
@@ -165,3 +170,21 @@ class TestValidationMetricsDependencies:
         roc_curve_fpr, roc_curve_tpr, _ = results["roc_curve"].to_numpy()[0]
         assert pytest.approx(roc_curve_fpr, 1e-2) == expected_roc_curve[0]
         assert pytest.approx(roc_curve_tpr, 1e-2) == expected_roc_curve[1]
+
+    @pytest.mark.parametrize(
+        "consumption_column,threshold_percentile,expected_utility",
+        [
+            (ConsumptionColumn.GROUNTRUTH, 20.0, -0.01712),
+            (ConsumptionColumn.PROXY, 30.0, -0.00614),
+        ],
+    )
+    def test_calculate_utility(
+        self, consumption_column, threshold_percentile, expected_utility
+    ):
+        utility = calculate_utility(
+            self.household_consumption_data,
+            threshold_percentile=threshold_percentile,
+            consumption_column=consumption_column,
+            cash_transfer_amount=1000,
+        )
+        assert pytest.approx(utility, 1e-3) == expected_utility

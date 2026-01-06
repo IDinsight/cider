@@ -192,3 +192,47 @@ def calculate_metrics_binary_valued_consumption(
     }
 
     return pd.DataFrame([results])
+
+
+def calculate_utility(
+    data: pd.DataFrame,
+    threshold_percentile: float,
+    consumption_column: ConsumptionColumn,
+    cash_transfer_amount: float,
+    constant_relative_risk_aversion: float = 3.0,
+) -> float:
+    """
+    Computes the constant relative risk-aversion (CRRA) [Hanna & Olken (2018)] utility when P% of the population is
+    targeted and they receive transfers of size 'transfer_size'
+
+    Args:
+        data (pd.DataFrame): DataFrame containing 'groundtruth_consumption', 'proxy_consumption' and 'weight'
+        threshold_percentile (float): Percentile threshold to use for consumption calculation.
+        consumption_column (ConsumptionColumn): Enum indicating which consumption column to use.
+        cash_transfer_amount (float): Amount of cash transfer given to targeted households.
+        constant_relative_risk_aversion (float): Coefficient of relative risk aversion (CRRA) utility function.
+
+    Returns:
+        float: The utility obtained by targeting the specified percentile of the population with the speciied cash transfer amount.
+    """
+
+    # Validate that input data has the required columns
+    _validate_dataframe(data, required_schema=HouseholdConsumptionData)
+
+    # Validate threshold values are correct
+    if not threshold_percentile > 0.0 and threshold_percentile < 100:
+        raise ValueError("threshold_percentile must be between 0 and 100")
+
+    # Compute utility
+    threshold_value = np.percentile(
+        data[consumption_column.value], threshold_percentile
+    )
+    is_cash_transferred = (data[consumption_column.value] < threshold_value).astype(
+        float
+    )
+    benefits = is_cash_transferred * data.weight * cash_transfer_amount
+    utility = (
+        (data[consumption_column.value] + benefits)
+        ** (1 - constant_relative_risk_aversion)
+    ) / (1 - constant_relative_risk_aversion)
+    return (utility * data.weight).sum() / data.weight.sum()
