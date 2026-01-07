@@ -137,17 +137,17 @@ def compute_utility_grid(
     # Create percentile grid
     percentiles = np.linspace(1, 100, num_grid_points)
     utilities: dict[str, list[float]] = {
-        col: [] for col in [ConsumptionColumn.GROUNTRUTH, ConsumptionColumn.PROXY]
+        col: [] for col in [ConsumptionColumn.GROUNDTRUTH, ConsumptionColumn.PROXY]
     }
     cash_transfer_amounts: dict[str, list[float]] = {
-        col: [] for col in [ConsumptionColumn.GROUNTRUTH, ConsumptionColumn.PROXY]
+        col: [] for col in [ConsumptionColumn.GROUNDTRUTH, ConsumptionColumn.PROXY]
     }
 
     total_cash_available = cash_transfer_amount * data["weight"].sum()
 
     for percentile in percentiles:
         # Compute utility per consumption column
-        for consumption_col in [ConsumptionColumn.GROUNTRUTH, ConsumptionColumn.PROXY]:
+        for consumption_col in [ConsumptionColumn.GROUNDTRUTH, ConsumptionColumn.PROXY]:
 
             is_cash_transferred = data[consumption_col] <= np.percentile(
                 data[consumption_col], percentile
@@ -170,12 +170,12 @@ def compute_utility_grid(
         {
             "percentile": percentiles,
             "cash_transfer_amount_groundtruth": cash_transfer_amounts[
-                ConsumptionColumn.GROUNTRUTH
+                ConsumptionColumn.GROUNDTRUTH
             ],
             "cash_transfer_amount_proxy": cash_transfer_amounts[
                 ConsumptionColumn.PROXY
             ],
-            "utility_groundtruth": utilities[ConsumptionColumn.GROUNTRUTH],
+            "utility_groundtruth": utilities[ConsumptionColumn.GROUNDTRUTH],
             "utility_proxy": utilities[ConsumptionColumn.PROXY],
         }
     )

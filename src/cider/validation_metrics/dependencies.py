@@ -47,7 +47,7 @@ from sklearn.metrics import (
 def convert_threshold_to_percentile(
     threshold: float | list[float],
     data: pd.DataFrame,
-    consumption_column: ConsumptionColumn = ConsumptionColumn.GROUNTRUTH,
+    consumption_column: ConsumptionColumn = ConsumptionColumn.GROUNDTRUTH,
 ) -> float:
     """Convert a threshold value to its corresponding percentile in the data.
 
@@ -166,9 +166,7 @@ def calculate_metrics_binary_valued_consumption(
         and groundtruth_threshold_percentile < 100
     ):
         raise ValueError("groundtruth_threshold_percentile must be between 0 and 100")
-    if not (
-        proxy_threshold_percentile > 0.0 and proxy_threshold_percentile < 100
-    ):
+    if not (proxy_threshold_percentile > 0.0 and proxy_threshold_percentile < 100):
         raise ValueError("proxy_threshold_percentile must be between 0 and 100")
 
     # Binarize consumption values based on thresholds

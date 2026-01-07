@@ -81,7 +81,7 @@ class TestValidationMetricsDependencies:
                 )
             with pytest.raises(ValueError):
                 calculate_utility(
-                    household_data_no_cols, 50.0, ConsumptionColumn.GROUNTRUTH, 1000
+                    household_data_no_cols, 50.0, ConsumptionColumn.GROUNDTRUTH, 1000
                 )
 
     def test_missing_columns_raise_errors_for_consumption_data_with_characteristic(
@@ -241,7 +241,7 @@ class TestValidationMetricsDependencies:
     @pytest.mark.parametrize(
         "consumption_column,threshold_percentile,expected_utility",
         [
-            (ConsumptionColumn.GROUNTRUTH, 20.0, -0.1115),
+            (ConsumptionColumn.GROUNDTRUTH, 20.0, -0.1115),
             (ConsumptionColumn.PROXY, 30.0, -0.0378),
         ],
     )
