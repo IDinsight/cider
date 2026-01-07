@@ -161,12 +161,14 @@ def calculate_metrics_binary_valued_consumption(
     _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Validate threshold values are correct
-    if (
-        not groundtruth_threshold_percentile > 0.0
+    if not (
+        groundtruth_threshold_percentile > 0.0
         and groundtruth_threshold_percentile < 100
     ):
         raise ValueError("groundtruth_threshold_percentile must be between 0 and 100")
-    if not proxy_threshold_percentile > 0.0 and proxy_threshold_percentile < 100:
+    if not (
+        proxy_threshold_percentile > 0.0 and proxy_threshold_percentile < 100
+    ):
         raise ValueError("proxy_threshold_percentile must be between 0 and 100")
 
     # Binarize consumption values based on thresholds
