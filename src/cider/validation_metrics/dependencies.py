@@ -161,12 +161,9 @@ def calculate_metrics_binary_valued_consumption(
     _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Validate threshold values are correct
-    if not (
-        groundtruth_threshold_percentile > 0.0
-        and groundtruth_threshold_percentile < 100
-    ):
+    if not (0.0 < groundtruth_threshold_percentile < 100):
         raise ValueError("groundtruth_threshold_percentile must be between 0 and 100")
-    if not (proxy_threshold_percentile > 0.0 and proxy_threshold_percentile < 100):
+    if not (0.0 < proxy_threshold_percentile < 100):
         raise ValueError("proxy_threshold_percentile must be between 0 and 100")
 
     # Binarize consumption values based on thresholds
@@ -234,7 +231,7 @@ def calculate_utility(
     _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Validate threshold values are correct
-    if not threshold_percentile > 0.0 and threshold_percentile < 100:
+    if not (0.0 < threshold_percentile < 100):
         raise ValueError("threshold_percentile must be between 0 and 100")
 
     # Compute utility
@@ -314,7 +311,7 @@ def calculate_demographic_parity_per_characteristic(
     _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     # Validate threshold values are correct
-    if not threshold_percentile > 0.0 and threshold_percentile < 100:
+    if not (0.0 < threshold_percentile < 100):
         raise ValueError("threshold_percentile must be between 0 and 100")
 
     # Calculate demographic parity per characteristic
@@ -371,7 +368,7 @@ def calculate_independence_btwn_proxy_and_characteristic(
     _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     # Validate threshold values are correct
-    if not threshold_percentile > 0.0 and threshold_percentile < 100:
+    if not (0.0 < threshold_percentile < 100):
         raise ValueError("threshold_percentile must be between 0 and 100")
 
     # Calculate independence between proxy and characteristic
@@ -415,12 +412,9 @@ def calculate_precision_and_recall_independence_characteristic(
     _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     # Validate threshold values are correct
-    if (
-        not groundtruth_threshold_percentile > 0.0
-        and groundtruth_threshold_percentile < 100
-    ):
+    if not (0.0 < groundtruth_threshold_percentile < 100):
         raise ValueError("groundtruth_threshold_percentile must be between 0 and 100")
-    if not proxy_threshold_percentile > 0.0 and proxy_threshold_percentile < 100:
+    if not (0.0 < proxy_threshold_percentile < 100):
         raise ValueError("proxy_threshold_percentile must be between 0 and 100")
 
     # Binarize consumption values based on thresholds
