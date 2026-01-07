@@ -38,6 +38,7 @@ from cider.validation_metrics.dependencies import (
     calculate_rank_residuals_by_characteristic,
     calculate_demographic_parity_per_characteristic,
     calculate_independence_btwn_proxy_and_characteristic,
+    calculate_precision_and_recall_independence_characteristic,
 )
 from cider.validation_metrics.schemas import (
     ConsumptionData,
@@ -98,6 +99,11 @@ class TestValidationMetricsDependencies:
             with pytest.raises(ValueError):
                 calculate_independence_btwn_proxy_and_characteristic(
                     household_data_no_cols, threshold_percentile=50
+                )
+
+            with pytest.raises(ValueError):
+                calculate_precision_and_recall_independence_characteristic(
+                    household_data_no_cols, 50, 50
                 )
 
     @pytest.mark.parametrize(
@@ -304,12 +310,57 @@ class TestValidationMetricsDependencies:
     def test_calculate_independence_btwn_proxy_and_characteristic(
         self, threshold_percentile, expected_independence_p_value
     ):
-        chi_2, p_value = calculate_independence_btwn_proxy_and_characteristic(
+        results_df = calculate_independence_btwn_proxy_and_characteristic(
             self.household_consumption_data_w_characteristic,
             threshold_percentile=threshold_percentile,
         )
-        assert pytest.approx(chi_2, 1e-2) == expected_independence_p_value[0]
-        assert pytest.approx(p_value, 1e-2) == expected_independence_p_value[1]
+        assert (
+            pytest.approx(results_df["chi2_statistic"][0], 1e-2)
+            == expected_independence_p_value[0]
+        )
+        assert (
+            pytest.approx(results_df["p_value"][0], 1e-2)
+            == expected_independence_p_value[1]
+        )
+
+    @pytest.mark.parametrize(
+        "groundtruth_threshold_percentile,proxy_threshold_percentile,expected_precision_chi2,expected_precision_p_value,expected_recall_chi2,expected_recall_p_value",
+        [
+            (50, 50, 2.9575, 0.0855, 0.96, 0.3272),
+            (25, 50, 0.3646, 0.546, 0.4444, 0.505),
+            (10, 25, 0.0, 1.0, 0.0, 1.0),
+        ],
+    )
+    def test_calculate_precision_and_recall_independence_characteristic(
+        self,
+        groundtruth_threshold_percentile,
+        proxy_threshold_percentile,
+        expected_precision_chi2,
+        expected_precision_p_value,
+        expected_recall_chi2,
+        expected_recall_p_value,
+    ):
+        results_df = calculate_precision_and_recall_independence_characteristic(
+            self.household_consumption_data_w_characteristic,
+            groundtruth_threshold_percentile,
+            proxy_threshold_percentile,
+        )
+        assert (
+            pytest.approx(results_df.loc["precision", "chi2_statistic"], 1e-2)
+            == expected_precision_chi2
+        )
+        assert (
+            pytest.approx(results_df.loc["precision", "p_value"], 1e-2)
+            == expected_precision_p_value
+        )
+        assert (
+            pytest.approx(results_df.loc["recall", "chi2_statistic"], 1e-2)
+            == expected_recall_chi2
+        )
+        assert (
+            pytest.approx(results_df.loc["recall", "p_value"], 1e-2)
+            == expected_recall_p_value
+        )
 
 
 class TestValidationMetricsCore:

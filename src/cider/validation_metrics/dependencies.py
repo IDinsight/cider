@@ -37,7 +37,11 @@ from .schemas import (
     ConsumptionDataWithCharacteristic,
 )
 from scipy.stats import rankdata, chi2_contingency
-from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
+from sklearn.metrics import (
+    confusion_matrix,
+    roc_auc_score,
+    roc_curve,
+)
 
 
 def convert_threshold_to_percentile(
@@ -352,7 +356,7 @@ def calculate_demographic_parity_per_characteristic(
 
 def calculate_independence_btwn_proxy_and_characteristic(
     data: pd.DataFrame, threshold_percentile: float
-) -> tuple[float, float]:
+) -> pd.DataFrame:
     """
     Calculate independence between proxy variable and characteristic at a specified threshold.
     Independence is defined as the difference in targeting rates across characteristic groups using the proxy variable.
@@ -389,4 +393,77 @@ def calculate_independence_btwn_proxy_and_characteristic(
     )
     chi2, p_value, _, _ = chi2_contingency(pivot)
 
-    return chi2, p_value
+    return pd.DataFrame({"chi2_statistic": [chi2], "p_value": [p_value]})
+
+
+def calculate_precision_and_recall_independence_characteristic(
+    data: pd.DataFrame,
+    groundtruth_threshold_percentile: float,
+    proxy_threshold_percentile: float,
+) -> pd.DataFrame:
+    """
+    Calculate precision and recall independence per characteristic.
+
+    Args:
+        data (pd.DataFrame): DataFrame containing 'groundtruth_consumption', 'proxy_consumption', 'weight', and 'characteristic' columns.
+        groundtruth_threshold_percentile (float): Percentile threshold to use for groundtruth consumption calculation.
+        proxy_threshold_percentile (float): Percentile threshold to use for proxy consumption calculation.
+    Returns:
+        tuple[float, float, float]: Chi-squared statistics and p-values for precision and recall independence per characteristic.
+    """
+    # Validate that input data has the required columns
+    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+
+    # Validate threshold values are correct
+    if (
+        not groundtruth_threshold_percentile > 0.0
+        and groundtruth_threshold_percentile < 100
+    ):
+        raise ValueError("groundtruth_threshold_percentile must be between 0 and 100")
+    if not proxy_threshold_percentile > 0.0 and proxy_threshold_percentile < 100:
+        raise ValueError("proxy_threshold_percentile must be between 0 and 100")
+
+    # Binarize consumption values based on thresholds
+    groundtruth_threshold_value = np.percentile(
+        data["groundtruth_consumption"], groundtruth_threshold_percentile
+    )
+    proxy_threshold_value = np.percentile(
+        data["proxy_consumption"], proxy_threshold_percentile
+    )
+
+    data_copy = data.copy()
+    data_copy["groundtruth_binary"] = (
+        data_copy["groundtruth_consumption"] <= groundtruth_threshold_value
+    ).astype(int)
+    data_copy["proxy_binary"] = (
+        data_copy["proxy_consumption"] <= proxy_threshold_value
+    ).astype(int)
+
+    filtered_precision_data = data_copy.loc[data_copy.proxy_binary == 1]
+    filtered_recall_data = data_copy.loc[data_copy.groundtruth_binary == 1]
+
+    pivot_precision = filtered_precision_data.pivot_table(
+        index="characteristic",
+        columns="groundtruth_binary",
+        values="weight",
+        aggfunc="sum",
+        fill_value=0,
+    )
+    pivot_recall = filtered_recall_data.pivot_table(
+        index="characteristic",
+        columns="proxy_binary",
+        values="weight",
+        aggfunc="sum",
+        fill_value=0,
+    )
+
+    chi2_precision, p_value_precision, _, _ = chi2_contingency(pivot_precision)
+    chi2_recall, p_value_recall, _, _ = chi2_contingency(pivot_recall)
+
+    return pd.DataFrame(
+        {
+            "chi2_statistic": [chi2_precision, chi2_recall],
+            "p_value": [p_value_precision, p_value_recall],
+        },
+        index=["precision", "recall"],
+    )
