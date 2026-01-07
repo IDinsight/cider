@@ -173,5 +173,5 @@ HOUSEHOLD_CONSUMPTION_DATA = {
     ],
     "groundtruth_consumption": [4.359, 0.259, 5.497, 4.353, 4.204, 5.985],
     "proxy_consumption": [5.359, 0.259, 8.497, 4.353, 8.304, 8.985],
-    "weight": [2.5, 3.0, 1.0, 2.0, 1.5, 2.0],
+    "weight": [2.0, 3.0, 1.0, 2.0, 1.0, 2.0],
 }

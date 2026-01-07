@@ -91,17 +91,16 @@ def calculate_weighted_spearmanr(
     rank_proxy = rankdata(data["proxy_consumption"], method="average")
 
     # Compute weighted Spearman correlation
-    normalized_groundtruth = rank_groundtruth - np.mean(
-        data["weight"] * rank_groundtruth
+    covariance = np.cov(
+        rank_groundtruth,
+        rank_proxy,
+        aweights=data["weight"],
     )
-    normalized_proxy = rank_proxy - np.mean(data["weight"] * rank_proxy)
+    std_groundtruth = np.sqrt(covariance[0, 0])
+    std_proxy = np.sqrt(covariance[1, 1])
+    spearmans_r = covariance[0, 1] / (std_groundtruth * std_proxy)
 
-    numerator = np.sum(data["weight"] * normalized_groundtruth * normalized_proxy)
-    denominator = np.sqrt(
-        np.sum(data["weight"] * normalized_groundtruth**2)
-        * np.sum(data["weight"] * normalized_proxy**2)
-    )
-    return round(numerator / denominator, significant_digits)
+    return round(spearmans_r, significant_digits)
 
 
 def calculate_weighted_pearsonr(
@@ -171,7 +170,7 @@ def calculate_metrics_binary_valued_consumption(
     proxy_binary = (data["proxy_consumption"] <= proxy_threshold_value).astype(int)
 
     # Calculate metrics
-    true_pos, true_neg, false_pos, false_neg = confusion_matrix(
+    true_neg, false_pos, false_neg, true_pos = confusion_matrix(
         groundtruth_binary, proxy_binary, sample_weight=data["weight"]
     ).ravel()
 
@@ -184,11 +183,13 @@ def calculate_metrics_binary_valued_consumption(
         "true_positive_rate": true_pos / (true_pos + false_neg),
         "false_positive_rate": false_pos / (false_pos + true_neg),
         "auc": roc_auc_score(
-            groundtruth_binary, -proxy_binary, sample_weight=data["weight"]
+            groundtruth_binary, -data["proxy_consumption"], sample_weight=data["weight"]
         ),
         "roc_curve": roc_curve(
-            groundtruth_binary, -proxy_binary, sample_weight=data["weight"]
+            groundtruth_binary, -data["proxy_consumption"], sample_weight=data["weight"]
         ),
+        "spearman_r": calculate_weighted_spearmanr(data),
+        "pearson_r": calculate_weighted_pearsonr(data),
     }
 
     return pd.DataFrame([results])
@@ -230,12 +231,12 @@ def calculate_utility(
     is_cash_transferred = (data[consumption_column.value] < threshold_value).astype(
         float
     )
-    benefits = is_cash_transferred * data.weight * cash_transfer_amount
+    benefits = is_cash_transferred * cash_transfer_amount
     utility = (
-        (data[consumption_column.value] + benefits)
+        (data[consumption_column.value] + benefits * data.weight / data.weight.sum())
         ** (1 - constant_relative_risk_aversion)
     ) / (1 - constant_relative_risk_aversion)
-    return (utility * data.weight).sum() / data.weight.sum()
+    return utility.sum()
 
 
 def where_is_false_positive_rate_nonmonotonic(

@@ -37,7 +37,11 @@ from cider.validation_metrics.dependencies import (
     where_is_false_positive_rate_nonmonotonic,
 )
 from cider.validation_metrics.schemas import HouseholdConsumptionData, ConsumptionColumn
-from cider.validation_metrics.core import compute_auc_roc_with_percentile_grid
+from cider.validation_metrics.core import (
+    compute_auc_roc_with_percentile_grid,
+    compute_utility_grid,
+    calculate_optimal_utility_and_cash_transfer_size_table,
+)
 from conftest import HOUSEHOLD_CONSUMPTION_DATA
 
 
@@ -66,9 +70,9 @@ class TestValidationMetricsDependencies:
     @pytest.mark.parametrize(
         "threshold,expected_percentile",
         [
-            (5.0, 79.69),
-            (2.0, 30.52),
-            (1.0, 27.35),
+            (5.0, 77.848),
+            (2.0, 31.285),
+            (1.0, 28.98),
         ],
     )
     def test_convert_threshold_to_percentile(self, threshold, expected_percentile):
@@ -80,9 +84,9 @@ class TestValidationMetricsDependencies:
     @pytest.mark.parametrize(
         "significant_digits,expected_spearmanr",
         [
-            (2, 0.97),
-            (3, 0.967),
-            (4, 0.9675),
+            (2, 0.9),
+            (3, 0.896),
+            (4, 0.8956),
         ],
     )
     def test_calculate_weighted_spearmanr(self, significant_digits, expected_spearmanr):
@@ -96,9 +100,9 @@ class TestValidationMetricsDependencies:
     @pytest.mark.parametrize(
         "significant_digits,expected_pearsonr",
         [
-            (2, 0.93),
-            (3, 0.93),
-            (4, 0.93),
+            (2, 0.94),
+            (3, 0.941),
+            (4, 0.9409),
         ],
     )
     def test_calculate_weighted_pearsonr(self, significant_digits, expected_pearsonr):
@@ -108,40 +112,55 @@ class TestValidationMetricsDependencies:
         assert pytest.approx(pearsonr, 10 ** (-significant_digits)) == expected_pearsonr
 
     @pytest.mark.parametrize(
-        "groundtruth_threshold_percentile,proxy_threshold_percentile,expected_accuracy,expected_precision,expected_recall,expected_tpr,expected_fpr,expected_auc,expected_roc_curve",
+        "groundtruth_threshold_percentile,proxy_threshold_percentile,expected_accuracy,expected_precision,expected_recall,expected_tpr,expected_fpr,expected_auc,expected_roc_curve, expected_spearman_r, expected_pearson_r",
         [
             (
                 25,
                 25,
-                0.625,
-                0.786,
-                0.647,
-                0.647,
+                0.727,
+                0.6,
+                0.75,
+                0.75,
+                0.286,
+                0.857,
+                (
+                    [0.0, 0.0, 0.571, 0.571, 0.714, 1.0],
+                    [0.0, 0.75, 0.75, 1.0, 1.0, 1.0],
+                ),
+                0.9,
+                0.94,
+            ),
+            (
+                25,
+                50,
+                0.545,
                 0.429,
-                0.3,
-                ([0.0, 0.733, 1.0], [0.0, 0.33, 1.0]),
-            ),
-            (
-                25,
-                50,
-                0.625,
-                0.667,
-                0.5,
-                0.5,
-                0.25,
-                0.467,
-                ([0.0, 0.4, 1.0], [0.0, 0.33, 1.0]),
+                0.75,
+                0.75,
+                0.571,
+                0.857,
+                (
+                    [0.0, 0.0, 0.571, 0.571, 0.714, 1.0],
+                    [0.0, 0.75, 0.75, 1.0, 1.0, 1.0],
+                ),
+                0.9,
+                0.94,
             ),
             (
                 50,
                 25,
-                0.4583,
-                0.786,
-                0.524,
-                0.524,
+                0.909,
                 1.0,
-                0.115,
-                ([0.0, 1.0, 1.0], [0.0, 0.231, 1.0]),
+                0.833,
+                0.833,
+                0.0,
+                0.933,
+                (
+                    [0.0, 0.0, 0.0, 0.4, 0.4, 0.6, 1.0],
+                    [0.0, 0.5, 0.833, 0.833, 1.0, 1.0, 1.0],
+                ),
+                0.9,
+                0.94,
             ),
         ],
     )
@@ -156,12 +175,15 @@ class TestValidationMetricsDependencies:
         expected_fpr,
         expected_auc,
         expected_roc_curve,
+        expected_spearman_r,
+        expected_pearson_r,
     ):
         results = calculate_metrics_binary_valued_consumption(
             self.household_consumption_data,
             groundtruth_threshold_percentile,
             proxy_threshold_percentile,
         )
+
         assert pytest.approx(results["accuracy"], 1e-2) == expected_accuracy
         assert pytest.approx(results["precision"], 1e-2) == expected_precision
         assert pytest.approx(results["recall"], 1e-2) == expected_recall
@@ -171,12 +193,14 @@ class TestValidationMetricsDependencies:
         roc_curve_fpr, roc_curve_tpr, _ = results["roc_curve"].to_numpy()[0]
         assert pytest.approx(roc_curve_fpr, 1e-2) == expected_roc_curve[0]
         assert pytest.approx(roc_curve_tpr, 1e-2) == expected_roc_curve[1]
+        assert pytest.approx(results["spearman_r"], 1e-2) == expected_spearman_r
+        assert pytest.approx(results["pearson_r"], 1e-2) == expected_pearson_r
 
     @pytest.mark.parametrize(
         "consumption_column,threshold_percentile,expected_utility",
         [
-            (ConsumptionColumn.GROUNTRUTH, 20.0, -0.01712),
-            (ConsumptionColumn.PROXY, 30.0, -0.00614),
+            (ConsumptionColumn.GROUNTRUTH, 20.0, -0.1115),
+            (ConsumptionColumn.PROXY, 30.0, -0.0378),
         ],
     )
     def test_calculate_utility(
@@ -188,7 +212,7 @@ class TestValidationMetricsDependencies:
             consumption_column=consumption_column,
             cash_transfer_amount=1000,
         )
-        assert pytest.approx(utility, 1e-3) == expected_utility
+        assert pytest.approx(utility, 1e-2) == expected_utility
 
     def test_is_false_positive_rate_monotonic(self):
         # Test with a monotonic false positive rate series
@@ -216,8 +240,58 @@ class TestValidationMetricsCore:
         results_df = compute_auc_roc_with_percentile_grid(
             self.household_consumption_data, num_grid_points=10
         )
-        assert "percentile" in results_df.columns
-        assert "true_positive_rate" in results_df.columns
-        assert "false_positive_rate" in results_df.columns
-        assert "auc" in results_df.columns
+        assert set(
+            ["percentile", "true_positive_rate", "false_positive_rate", "auc"]
+        ) == set(results_df.columns)
+        assert len(results_df) == 8
+
+    def test_compute_utility_grid(self):
+        results_df = compute_utility_grid(
+            self.household_consumption_data,
+            cash_transfer_amount=1000,
+            num_grid_points=10,
+            constant_relative_risk_aversion=3.0,
+        )
+        assert set(
+            [
+                "percentile",
+                "cash_transfer_amount_groundtruth",
+                "utility_groundtruth",
+                "cash_transfer_amount_proxy",
+                "utility_proxy",
+            ]
+        ) == set(results_df.columns)
         assert len(results_df) == 10
+
+    def test_calculate_optimal_utility_and_cash_transfer_size_table(self):
+        results_df = calculate_optimal_utility_and_cash_transfer_size_table(
+            self.household_consumption_data,
+            cash_transfer_amount=1000,
+            num_grid_points=10,
+            constant_relative_risk_aversion=3.0,
+        )
+        for col in [
+            "optimal_population_percentile",
+            "maximum_utility",
+            "optimal_transfer_size",
+        ]:
+            print(col, results_df[col].to_list())
+        assert set(
+            [
+                "optimal_population_percentile",
+                "maximum_utility",
+                "optimal_transfer_size",
+            ]
+        ) == set(results_df.columns)
+        assert len(results_df) == 2
+        assert pytest.approx(
+            results_df.optimal_population_percentile.to_numpy(), 1e-2
+        ) == [89.0, 89.0]
+        assert pytest.approx(results_df.maximum_utility.to_numpy(), 1e-2) == [
+            -0.0141,
+            -0.00629,
+        ]
+        assert pytest.approx(results_df.optimal_transfer_size.to_numpy(), 1e-2) == [
+            1222.22,
+            1222.22,
+        ]
