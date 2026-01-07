@@ -289,3 +289,61 @@ def calculate_rank_residuals_by_characteristic(data: pd.DataFrame):
     )
 
     return data_copy.groupby("characteristic")["rank_residual"].apply(list)
+
+
+def calculate_demographic_parity_per_characteristic(
+    data: pd.DataFrame, threshold_percentile: float
+) -> pd.DataFrame:
+    """
+    Calculate demographic parity difference in targeting rates per characteristic groups.
+    Demographic parity is defined as the difference in the population targeted using the groundtruth consumption and the proxy variable.
+
+    Args:
+        data (pd.DataFrame): DataFrame containing 'groundtruth_consumption', 'proxy_consumption', 'weight', and 'characteristic' columns.
+        threshold_percentile (float): Percentile threshold to use for consumption calculation.
+
+    Returns:
+        pd.DataFrame: DataFrame containing demographic parity differences per characteristic.
+    """
+    # Validate that input data has the required columns
+    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+
+    # Validate threshold values are correct
+    if not threshold_percentile > 0.0 and threshold_percentile < 100:
+        raise ValueError("threshold_percentile must be between 0 and 100")
+
+    # Calculate demographic parity per characteristic
+    proxy_threshold_value = np.percentile(
+        data["proxy_consumption"], threshold_percentile
+    )
+    groundtruth_threshold_value = np.percentile(
+        data["groundtruth_consumption"], threshold_percentile
+    )
+
+    data_copy = data.copy()
+    data_copy["is_targeted_proxy"] = (
+        data_copy["proxy_consumption"] <= proxy_threshold_value
+    ).astype(int)
+    data_copy["is_targeted_groundtruth"] = (
+        data_copy["groundtruth_consumption"] <= groundtruth_threshold_value
+    ).astype(int)
+
+    data_grouped = data_copy.groupby("characteristic").apply(
+        lambda x: pd.Series(
+            {
+                "groundtruth_poverty_percentage": 100
+                * (x.is_targeted_groundtruth * x.weight).sum()
+                / x.weight.sum(),
+                "proxy_poverty_percentage": 100
+                * (x.is_targeted_proxy * x.weight).sum()
+                / x.weight.sum(),
+            },
+        ),
+        include_groups=False,
+    )
+    data_grouped["demographic_parity"] = (
+        data_grouped["proxy_poverty_percentage"]
+        - data_grouped["groundtruth_poverty_percentage"]
+    )
+
+    return data_grouped

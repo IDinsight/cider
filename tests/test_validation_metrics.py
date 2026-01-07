@@ -36,6 +36,7 @@ from cider.validation_metrics.dependencies import (
     calculate_utility,
     where_is_false_positive_rate_nonmonotonic,
     calculate_rank_residuals_by_characteristic,
+    calculate_demographic_parity_per_characteristic,
 )
 from cider.validation_metrics.schemas import (
     ConsumptionData,
@@ -87,6 +88,11 @@ class TestValidationMetricsDependencies:
             )
             with pytest.raises(ValueError):
                 calculate_rank_residuals_by_characteristic(household_data_no_cols)
+
+            with pytest.raises(ValueError):
+                calculate_demographic_parity_per_characteristic(
+                    household_data_no_cols, threshold_percentile=50
+                )
 
     @pytest.mark.parametrize(
         "threshold,expected_percentile",
@@ -251,6 +257,35 @@ class TestValidationMetricsDependencies:
         rank_residuals_list = rank_residuals.to_dict()
         pytest.approx(rank_residuals_list["group_1"], 1e-2) == [-1, 1, -1, 1]
         pytest.approx(rank_residuals_list["group_2"], 1e-2) == [1, -1, 1, -1]
+
+    @pytest.mark.parametrize(
+        "threshold_percentile,expected_demographic_parity",
+        [
+            (50, 1.0),
+            (25, 0.5),
+            (10, 0.0),
+        ],
+    )
+    def test_calculate_demographic_parity_per_characteristic(
+        self, threshold_percentile, expected_demographic_parity
+    ):
+        results = calculate_demographic_parity_per_characteristic(
+            self.household_consumption_data_w_characteristic,
+            threshold_percentile=threshold_percentile,
+        )
+        assert set(
+            [
+                "groundtruth_poverty_percentage",
+                "proxy_poverty_percentage",
+                "demographic_parity",
+            ]
+        ) == set(results.columns)
+        pytest.approx(results.loc["group_1", "demographic_parity"], 1e-2) == [
+            expected_demographic_parity
+        ]
+        pytest.approx(results.loc["group_2", "demographic_parity"], 1e-2) == [
+            expected_demographic_parity
+        ]
 
 
 class TestValidationMetricsCore:
