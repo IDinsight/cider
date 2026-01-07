@@ -31,6 +31,7 @@ from .dependencies import (
     where_is_false_positive_rate_nonmonotonic,
     calculate_utility,
     calculate_rank_residuals_by_characteristic,
+    calculate_demographic_parity_per_characteristic,
 )
 from .schemas import (
     ConsumptionData,
@@ -266,3 +267,30 @@ def calculate_rank_residuals_table_by_characteristic(
         anova_results.statistic,
         anova_results.pvalue,
     )
+
+
+def calculate_demographic_parity_table_per_characteristic(
+    data: pd.DataFrame,
+    threshold_percentile: float,
+) -> pd.DataFrame:
+    """
+    Calculate demographic parity per characteristic.
+
+    Args:
+        data (pd.DataFrame): Data containing consumption values, weights, and characteristic.
+        threshold_percentile (float): Percentile threshold for targeting.
+
+    Returns:
+        pd.DataFrame: DataFrame containing demographic parity statistics by characteristic.
+    """
+    # Validate that input data has the required columns
+    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+
+    results = calculate_demographic_parity_per_characteristic(
+        data, threshold_percentile
+    )
+    results["population_percentage"] = data.groupby("characteristic").apply(
+        lambda x: 100 * x["weight"].sum() / data["weight"].sum(), include_groups=False
+    )
+
+    return results

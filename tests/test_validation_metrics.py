@@ -50,6 +50,7 @@ from cider.validation_metrics.core import (
     compute_utility_grid,
     calculate_optimal_utility_and_cash_transfer_size_table,
     calculate_rank_residuals_table_by_characteristic,
+    calculate_demographic_parity_table_per_characteristic,
 )
 from conftest import (
     HOUSEHOLD_CONSUMPTION_DATA,
@@ -400,6 +401,10 @@ class TestValidationMetricsCore:
             )
             with pytest.raises(ValueError):
                 calculate_rank_residuals_table_by_characteristic(household_data_no_cols)
+            with pytest.raises(ValueError):
+                calculate_demographic_parity_table_per_characteristic(
+                    household_data_no_cols, threshold_percentile=50
+                )
 
     def test_compute_auc_roc_with_percentile_grid(self):
         results_df = compute_auc_roc_with_percentile_grid(
@@ -474,3 +479,29 @@ class TestValidationMetricsCore:
         ]
         assert pytest.approx(anova_f_statistic, 1e-2) == 0.25
         assert pytest.approx(anova_p_value, 1e-2) == 0.6433
+
+    def test_calculate_demographic_parity_table_per_characteristic(self):
+        results_df = calculate_demographic_parity_table_per_characteristic(
+            self.household_consumption_data_w_characteristic,
+            threshold_percentile=50,
+        )
+        assert set(
+            [
+                "groundtruth_poverty_percentage",
+                "proxy_poverty_percentage",
+                "demographic_parity",
+                "population_percentage",
+            ]
+        ) == set(results_df.columns)
+        pytest.approx(results_df.loc["group_1", :].to_list(), 1e-2) == [
+            50.0,
+            50.0,
+            1.0,
+            0.5,
+        ]
+        pytest.approx(results_df.loc["group_2", :].to_list(), 1e-2) == [
+            50.0,
+            50.0,
+            1.0,
+            0.5,
+        ]
