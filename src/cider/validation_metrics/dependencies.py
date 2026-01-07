@@ -236,3 +236,17 @@ def calculate_utility(
         ** (1 - constant_relative_risk_aversion)
     ) / (1 - constant_relative_risk_aversion)
     return (utility * data.weight).sum() / data.weight.sum()
+
+
+def where_is_false_positive_rate_nonmonotonic(
+    false_positive_rates: np.ndarray,
+) -> np.ndarray:
+    """
+    Check if false positive rates are strictly increasing.
+
+    Args:
+        false_positive_rates (np.ndarray): Array of false positive rates.
+    Returns:
+        bool: True if false positive rates are strictly increasing, False otherwise.
+    """
+    return np.argwhere(false_positive_rates[1:] < false_positive_rates[:-1])

@@ -27,14 +27,17 @@
 
 import pytest
 import pandas as pd
+import numpy as np
 from cider.validation_metrics.dependencies import (
     calculate_weighted_spearmanr,
     calculate_weighted_pearsonr,
     convert_threshold_to_percentile,
     calculate_metrics_binary_valued_consumption,
     calculate_utility,
+    where_is_false_positive_rate_nonmonotonic,
 )
 from cider.validation_metrics.schemas import HouseholdConsumptionData, ConsumptionColumn
+from cider.validation_metrics.core import compute_auc_roc_with_percentile_grid
 from conftest import HOUSEHOLD_CONSUMPTION_DATA
 
 
@@ -159,8 +162,6 @@ class TestValidationMetricsDependencies:
             groundtruth_threshold_percentile,
             proxy_threshold_percentile,
         )
-        for k, v in results.items():
-            print(f"{k}: {v}")
         assert pytest.approx(results["accuracy"], 1e-2) == expected_accuracy
         assert pytest.approx(results["precision"], 1e-2) == expected_precision
         assert pytest.approx(results["recall"], 1e-2) == expected_recall
@@ -188,3 +189,35 @@ class TestValidationMetricsDependencies:
             cash_transfer_amount=1000,
         )
         assert pytest.approx(utility, 1e-3) == expected_utility
+
+    def test_is_false_positive_rate_monotonic(self):
+        # Test with a monotonic false positive rate series
+        fpr_monotonic = np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5])
+        assert len(where_is_false_positive_rate_nonmonotonic(fpr_monotonic)) == 0
+
+        # Test with a non-monotonic false positive rate series
+        fpr_non_monotonic = np.array([0.0, 0.2, 0.15, 0.3, 0.4, 0.5])
+        assert len(where_is_false_positive_rate_nonmonotonic(fpr_non_monotonic)) == 1
+
+
+class TestValidationMetricsCore:
+
+    household_consumption_data = pd.DataFrame(HOUSEHOLD_CONSUMPTION_DATA)
+
+    def test_missing_columns_raise_errors(self):
+        for col in HouseholdConsumptionData.model_fields.keys():
+            household_data_no_cols = self.household_consumption_data.drop(columns=[col])
+            with pytest.raises(ValueError):
+                compute_auc_roc_with_percentile_grid(
+                    household_data_no_cols, num_grid_points=10
+                )
+
+    def test_compute_auc_roc_with_percentile_grid(self):
+        results_df = compute_auc_roc_with_percentile_grid(
+            self.household_consumption_data, num_grid_points=10
+        )
+        assert "percentile" in results_df.columns
+        assert "true_positive_rate" in results_df.columns
+        assert "false_positive_rate" in results_df.columns
+        assert "auc" in results_df.columns
+        assert len(results_df) == 10
