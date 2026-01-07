@@ -32,6 +32,8 @@ from .dependencies import (
     calculate_utility,
     calculate_rank_residuals_by_characteristic,
     calculate_demographic_parity_per_characteristic,
+    calculate_independence_btwn_proxy_and_characteristic,
+    calculate_precision_and_recall_independence_characteristic,
 )
 from .schemas import (
     ConsumptionData,
@@ -294,3 +296,64 @@ def calculate_demographic_parity_table_per_characteristic(
     )
 
     return results
+
+
+def combine_tables_on_characteristic(
+    data: pd.DataFrame,
+    threshold_percentile: float,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Combine rank residuals table, demographic parity table, and independence, precision and recall values on characteristic.
+
+    Args:
+        data (pd.DataFrame): Data containing consumption values, weights, and characteristic.
+        threshold_percentile (float): Percentile threshold for targeting.
+
+    Returns:
+        pd.DataFrame: Combined DataFrame.
+    """
+    # Validate that input data has the required columns
+    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+
+    # Calculate individual components
+    rank_residuals_table, anova_statistic, anova_pvalue = (
+        calculate_rank_residuals_table_by_characteristic(data)
+    )
+    demographic_parity_table = calculate_demographic_parity_table_per_characteristic(
+        data, threshold_percentile
+    )
+
+    independence = calculate_independence_btwn_proxy_and_characteristic(
+        data, threshold_percentile
+    )
+    independence_chi2, independence_p_value = independence.loc[0, :].to_list()
+
+    precision_recall = calculate_precision_and_recall_independence_characteristic(
+        data, threshold_percentile, threshold_percentile
+    )
+    precision_chi2, precision_pvalue = precision_recall.loc["precision", :].to_list()
+    recall_chi2, recall_pvalue = precision_recall.loc["recall", :].to_list()
+
+    # Combine tables
+    combined_table = rank_residuals_table.merge(
+        demographic_parity_table,
+        left_index=True,
+        right_index=True,
+        how="inner",
+    )
+
+    # Get statistics
+    statistics = pd.DataFrame(
+        {
+            "anova_f_statistic": [anova_statistic],
+            "anova_p_value": [anova_pvalue],
+            "independence_chi2": [independence_chi2],
+            "independence_p_value": [independence_p_value],
+            "precision_chi2": [precision_chi2],
+            "precision_pvalue": [precision_pvalue],
+            "recall_chi2": [recall_chi2],
+            "recall_pvalue": [recall_pvalue],
+        }
+    )
+
+    return combined_table, statistics

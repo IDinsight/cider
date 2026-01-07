@@ -51,6 +51,7 @@ from cider.validation_metrics.core import (
     calculate_optimal_utility_and_cash_transfer_size_table,
     calculate_rank_residuals_table_by_characteristic,
     calculate_demographic_parity_table_per_characteristic,
+    combine_tables_on_characteristic,
 )
 from conftest import (
     HOUSEHOLD_CONSUMPTION_DATA,
@@ -405,6 +406,10 @@ class TestValidationMetricsCore:
                 calculate_demographic_parity_table_per_characteristic(
                     household_data_no_cols, threshold_percentile=50
                 )
+            with pytest.raises(ValueError):
+                combine_tables_on_characteristic(
+                    household_data_no_cols, threshold_percentile=50
+                )
 
     def test_compute_auc_roc_with_percentile_grid(self):
         results_df = compute_auc_roc_with_percentile_grid(
@@ -505,3 +510,30 @@ class TestValidationMetricsCore:
             1.0,
             0.5,
         ]
+
+    def test_combine_tables_on_characteristic(self):
+        combined_table, statistics = combine_tables_on_characteristic(
+            self.household_consumption_data_w_characteristic, threshold_percentile=50
+        )
+        assert set(
+            [
+                "mean_rank_residual",
+                "std_rank_residual",
+                "groundtruth_poverty_percentage",
+                "proxy_poverty_percentage",
+                "demographic_parity",
+                "population_percentage",
+            ]
+        ) == set(combined_table.columns)
+        assert set(statistics.columns) == set(
+            [
+                "anova_f_statistic",
+                "anova_p_value",
+                "independence_chi2",
+                "independence_p_value",
+                "precision_chi2",
+                "precision_pvalue",
+                "recall_chi2",
+                "recall_pvalue",
+            ]
+        )
