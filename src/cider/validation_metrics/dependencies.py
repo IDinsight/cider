@@ -29,13 +29,14 @@
 import pandas as pd
 import numpy as np
 
+
 from cider.utils import _validate_dataframe
 from .schemas import (
     ConsumptionData,
     ConsumptionColumn,
     ConsumptionDataWithCharacteristic,
 )
-from scipy.stats import rankdata
+from scipy.stats import rankdata, chi2_contingency
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 
 
@@ -347,3 +348,45 @@ def calculate_demographic_parity_per_characteristic(
     )
 
     return data_grouped
+
+
+def calculate_independence_btwn_proxy_and_characteristic(
+    data: pd.DataFrame, threshold_percentile: float
+) -> tuple[float, float]:
+    """
+    Calculate independence between proxy variable and characteristic at a specified threshold.
+    Independence is defined as the difference in targeting rates across characteristic groups using the proxy variable.
+
+    Args:
+        data (pd.DataFrame): DataFrame containing 'proxy_consumption', 'weight', and 'characteristic' columns.
+        threshold_percentile (float): Percentile threshold to use for consumption calculation.
+    Returns:
+        chi2 statistic and p-value from chi-squared test for independence.
+    """
+    # Validate that input data has the required columns
+    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+
+    # Validate threshold values are correct
+    if not threshold_percentile > 0.0 and threshold_percentile < 100:
+        raise ValueError("threshold_percentile must be between 0 and 100")
+
+    # Calculate independence between proxy and characteristic
+    proxy_threshold_value = np.percentile(
+        data["proxy_consumption"], threshold_percentile
+    )
+
+    data_copy = data.copy()
+    data_copy["is_targeted_proxy"] = (
+        data_copy["proxy_consumption"] <= proxy_threshold_value
+    ).astype(int)
+
+    pivot = data_copy.pivot_table(
+        index="characteristic",
+        columns="is_targeted_proxy",
+        values="weight",
+        aggfunc="sum",
+        fill_value=0,
+    )
+    chi2, p_value, _, _ = chi2_contingency(pivot)
+
+    return chi2, p_value

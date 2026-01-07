@@ -37,6 +37,7 @@ from cider.validation_metrics.dependencies import (
     where_is_false_positive_rate_nonmonotonic,
     calculate_rank_residuals_by_characteristic,
     calculate_demographic_parity_per_characteristic,
+    calculate_independence_btwn_proxy_and_characteristic,
 )
 from cider.validation_metrics.schemas import (
     ConsumptionData,
@@ -91,6 +92,11 @@ class TestValidationMetricsDependencies:
 
             with pytest.raises(ValueError):
                 calculate_demographic_parity_per_characteristic(
+                    household_data_no_cols, threshold_percentile=50
+                )
+
+            with pytest.raises(ValueError):
+                calculate_independence_btwn_proxy_and_characteristic(
                     household_data_no_cols, threshold_percentile=50
                 )
 
@@ -287,6 +293,24 @@ class TestValidationMetricsDependencies:
             expected_demographic_parity
         ]
 
+    @pytest.mark.parametrize(
+        "threshold_percentile,expected_independence_p_value",
+        [
+            (50, (0.0035, 0.9528)),
+            (25, (2.753, 0.097)),
+            (10, (0.692, 0.406)),
+        ],
+    )
+    def test_calculate_independence_btwn_proxy_and_characteristic(
+        self, threshold_percentile, expected_independence_p_value
+    ):
+        chi_2, p_value = calculate_independence_btwn_proxy_and_characteristic(
+            self.household_consumption_data_w_characteristic,
+            threshold_percentile=threshold_percentile,
+        )
+        assert pytest.approx(chi_2, 1e-2) == expected_independence_p_value[0]
+        assert pytest.approx(p_value, 1e-2) == expected_independence_p_value[1]
+
 
 class TestValidationMetricsCore:
 
@@ -334,12 +358,7 @@ class TestValidationMetricsCore:
             num_grid_points=10,
             constant_relative_risk_aversion=3.0,
         )
-        for col in [
-            "optimal_population_percentile",
-            "maximum_utility",
-            "optimal_transfer_size",
-        ]:
-            print(col, results_df[col].to_list())
+
         assert set(
             [
                 "optimal_population_percentile",
