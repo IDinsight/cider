@@ -31,7 +31,7 @@ from .dependencies import (
     where_is_false_positive_rate_nonmonotonic,
     calculate_utility,
 )
-from .schemas import HouseholdConsumptionData, ConsumptionColumn
+from .schemas import ConsumptionData, ConsumptionColumn
 import pandas as pd
 import numpy as np
 
@@ -51,7 +51,7 @@ def compute_auc_roc_with_percentile_grid(
         pd.DataFrame: DataFrame containing percentiles and corresponding false positive rates, false negative rates, and AUC values.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=HouseholdConsumptionData)
+    _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Create percentile grid
     percentiles = np.linspace(1, 99, num_grid_points)[::-1]
@@ -122,7 +122,7 @@ def compute_utility_grid(
         pd.DataFrame: DataFrame containing percentiles and corresponding utility values.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=HouseholdConsumptionData)
+    _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Create percentile grid
     percentiles = np.linspace(1, 100, num_grid_points)
@@ -191,7 +191,7 @@ def calculate_optimal_utility_and_cash_transfer_size_table(
         pd.DataFrame: DataFrame containing optimal cash transfer sizes and utilities for groundtruth and proxy consumption.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=HouseholdConsumptionData)
+    _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Compute utility grid
     utility_grid_df = compute_utility_grid(

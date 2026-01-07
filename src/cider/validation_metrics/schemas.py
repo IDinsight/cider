@@ -26,8 +26,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Annotated
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Annotated, ClassVar
 from enum import Enum
 
 
@@ -36,17 +36,44 @@ class ConsumptionColumn(str, Enum):
     PROXY = "proxy_consumption"
 
 
-class HouseholdConsumptionData(BaseModel):
+class ConsumptionData(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     household_id: Annotated[
         str, Field(description="Unique identifier for each household")
     ]
     groundtruth_consumption: Annotated[
-        float, Field(description="Groundtruth consumption value for the household")
+        float, Field(description="Groundtruth consumption value")
     ]
     proxy_consumption: Annotated[
-        float, Field(description="Proxy consumption value for the household")
+        float, Field(description="Proxy consumption value (estimated consumption)")
     ]
     weight: Annotated[
         float, Field(description="Weight of the household in the dataset")
     ]
+
+
+class ConsumptionDataWithCharacteristic(ConsumptionData):
+    model_config = ConfigDict(from_attributes=True)
+
+    # Allowed values for characteristic -- this must be set before using the pydantic class
+    # Useful if we want to run data checks before we start using the metric functions
+    allowed_characteristic_values: ClassVar[set] = set()
+
+    characteristic: Annotated[
+        str | int, Field(description="Group identifier for fairness analysis")
+    ]
+
+    @field_validator("characteristic")
+    @classmethod
+    def validate_characteristic(cls, v):
+        if not cls.allowed_characteristic_values:
+            raise ValueError(
+                "`allowed_characteristic_values` must be set before using ConsumptionDataWithCharacteristic"
+            )
+        if (
+            cls.allowed_characteristic_values
+            and v not in cls.allowed_characteristic_values
+        ):
+            raise ValueError(
+                f"Characteristic value {v} not in allowed values: {cls.allowed_characteristic_values}"
+            )

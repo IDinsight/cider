@@ -35,22 +35,33 @@ from cider.validation_metrics.dependencies import (
     calculate_metrics_binary_valued_consumption,
     calculate_utility,
     where_is_false_positive_rate_nonmonotonic,
+    calculate_rank_residuals_by_characteristic,
 )
-from cider.validation_metrics.schemas import HouseholdConsumptionData, ConsumptionColumn
+from cider.validation_metrics.schemas import (
+    ConsumptionData,
+    ConsumptionColumn,
+    ConsumptionDataWithCharacteristic,
+)
 from cider.validation_metrics.core import (
     compute_auc_roc_with_percentile_grid,
     compute_utility_grid,
     calculate_optimal_utility_and_cash_transfer_size_table,
 )
-from conftest import HOUSEHOLD_CONSUMPTION_DATA
+from conftest import (
+    HOUSEHOLD_CONSUMPTION_DATA,
+    HOUSEHOLD_CONSUMPTION_DATA_W_CHARACTERISTIC,
+)
 
 
 class TestValidationMetricsDependencies:
 
     household_consumption_data = pd.DataFrame(HOUSEHOLD_CONSUMPTION_DATA)
+    household_consumption_data_w_characteristic = pd.DataFrame(
+        HOUSEHOLD_CONSUMPTION_DATA_W_CHARACTERISTIC
+    )
 
-    def test_missing_columns_raise_errors(self):
-        for col in HouseholdConsumptionData.model_fields.keys():
+    def test_missing_columns_raise_errors_for_consumption_data(self):
+        for col in ConsumptionData.model_fields.keys():
             household_data_no_cols = self.household_consumption_data.drop(columns=[col])
             with pytest.raises(ValueError):
                 convert_threshold_to_percentile(50.0, household_data_no_cols)
@@ -66,6 +77,16 @@ class TestValidationMetricsDependencies:
                 calculate_utility(
                     household_data_no_cols, 50.0, ConsumptionColumn.GROUNTRUTH, 1000
                 )
+
+    def test_missing_columns_raise_errors_for_consumption_data_with_characteristic(
+        self,
+    ):
+        for col in ConsumptionDataWithCharacteristic.model_fields.keys():
+            household_data_no_cols = (
+                self.household_consumption_data_w_characteristic.drop(columns=[col])
+            )
+            with pytest.raises(ValueError):
+                calculate_rank_residuals_by_characteristic(household_data_no_cols)
 
     @pytest.mark.parametrize(
         "threshold,expected_percentile",
@@ -223,13 +244,21 @@ class TestValidationMetricsDependencies:
         fpr_non_monotonic = np.array([0.0, 0.2, 0.15, 0.3, 0.4, 0.5])
         assert len(where_is_false_positive_rate_nonmonotonic(fpr_non_monotonic)) == 1
 
+    def test_calculate_rank_residuals_by_characteristic(self):
+        rank_residuals = calculate_rank_residuals_by_characteristic(
+            self.household_consumption_data_w_characteristic
+        )
+        rank_residuals_list = rank_residuals.to_dict()
+        pytest.approx(rank_residuals_list["group_1"], 1e-2) == [-1, 1, -1, 1]
+        pytest.approx(rank_residuals_list["group_2"], 1e-2) == [1, -1, 1, -1]
+
 
 class TestValidationMetricsCore:
 
     household_consumption_data = pd.DataFrame(HOUSEHOLD_CONSUMPTION_DATA)
 
     def test_missing_columns_raise_errors(self):
-        for col in HouseholdConsumptionData.model_fields.keys():
+        for col in ConsumptionData.model_fields.keys():
             household_data_no_cols = self.household_consumption_data.drop(columns=[col])
             with pytest.raises(ValueError):
                 compute_auc_roc_with_percentile_grid(

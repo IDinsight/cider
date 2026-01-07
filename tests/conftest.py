@@ -175,3 +175,13 @@ HOUSEHOLD_CONSUMPTION_DATA = {
     "proxy_consumption": [5.359, 0.259, 8.497, 4.353, 8.304, 8.985],
     "weight": [2.0, 3.0, 1.0, 2.0, 1.0, 2.0],
 }
+ALLOWED_CHARACTERISTIC_VALUES = {"group_1", "group_2"}
+HOUSEHOLD_CONSUMPTION_DATA_W_CHARACTERISTIC = HOUSEHOLD_CONSUMPTION_DATA.copy()
+HOUSEHOLD_CONSUMPTION_DATA_W_CHARACTERISTIC["characteristic"] = [
+    "group_1",
+    "group_2",
+    "group_1",
+    "group_2",
+    "group_1",
+    "group_2",
+]

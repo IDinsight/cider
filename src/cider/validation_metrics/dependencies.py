@@ -30,7 +30,11 @@ import pandas as pd
 import numpy as np
 
 from cider.utils import _validate_dataframe
-from .schemas import HouseholdConsumptionData, ConsumptionColumn
+from .schemas import (
+    ConsumptionData,
+    ConsumptionColumn,
+    ConsumptionDataWithCharacteristic,
+)
 from scipy.stats import rankdata
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 
@@ -51,7 +55,7 @@ def convert_threshold_to_percentile(
         float: The percentile corresponding to the threshold value.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=HouseholdConsumptionData)
+    _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Calculate and return the percentile
     consumption_data = data[consumption_column.value].to_numpy()
@@ -84,11 +88,15 @@ def calculate_weighted_spearmanr(
         float: Weighted Spearman correlation coefficient.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=HouseholdConsumptionData)
+    _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Rank the groundtruth and proxy consumption values
-    rank_groundtruth = rankdata(data["groundtruth_consumption"], method="average")
-    rank_proxy = rankdata(data["proxy_consumption"], method="average")
+    rank_groundtruth = rankdata(
+        data["groundtruth_consumption"], method="ordinal"
+    )  # use 'ordinal' to avoid ties
+    rank_proxy = rankdata(
+        data["proxy_consumption"], method="ordinal"
+    )  # use 'ordinal' to avoid ties
 
     # Compute weighted Spearman correlation
     covariance = np.cov(
@@ -114,7 +122,7 @@ def calculate_weighted_pearsonr(
         float: Weighted Pearson correlation coefficient.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=HouseholdConsumptionData)
+    _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Compute weighted Pearson correlation
     covariance_matrix = np.cov(
@@ -145,7 +153,7 @@ def calculate_metrics_binary_valued_consumption(
         pd.DataFrame: DataFrame containing binary metrics.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=HouseholdConsumptionData)
+    _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Validate threshold values are correct
     if (
@@ -218,7 +226,7 @@ def calculate_utility(
     """
 
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=HouseholdConsumptionData)
+    _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Validate threshold values are correct
     if not threshold_percentile > 0.0 and threshold_percentile < 100:
@@ -251,3 +259,33 @@ def where_is_false_positive_rate_nonmonotonic(
         bool: True if false positive rates are strictly increasing, False otherwise.
     """
     return np.argwhere(false_positive_rates[1:] < false_positive_rates[:-1])
+
+
+def calculate_rank_residuals_by_characteristic(data: pd.DataFrame):
+    """
+    Calculate rank residuals between groundtruth and proxy consumption by characteristic, to check for consistent biases in ranking.
+
+    Args:
+        data (pd.DataFrame): DataFrame containing 'groundtruth_consumption', 'proxy_consumption', 'weight', and 'characteristic' columns.
+        unique_characteristic_values (set): Set of allowed values for the characteristic column.
+    Returns:
+        pd.Series: Series containing rank residuals grouped by characteristic.
+    """
+    # Validate that input data has the required columns
+    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+
+    # Compute rank residuals by characteristic
+    data_copy = data.copy()
+    groundtruth_ranks = rankdata(
+        data["groundtruth_consumption"], method="ordinal"
+    )  # use 'ordinal' to avoid ties
+    proxy_ranks = rankdata(
+        data["proxy_consumption"], method="ordinal"
+    )  # use 'ordinal' to avoid ties
+    data_copy["rank_residual"] = (
+        data.weight
+        * (groundtruth_ranks - proxy_ranks)
+        / (data.weight.sum() * proxy_ranks.max())
+    )
+
+    return data_copy.groupby("characteristic")["rank_residual"].apply(list)
