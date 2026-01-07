@@ -30,10 +30,17 @@ from .dependencies import (
     calculate_metrics_binary_valued_consumption,
     where_is_false_positive_rate_nonmonotonic,
     calculate_utility,
+    calculate_rank_residuals_by_characteristic,
 )
-from .schemas import ConsumptionData, ConsumptionColumn
+from .schemas import (
+    ConsumptionData,
+    ConsumptionColumn,
+    ConsumptionDataWithCharacteristic,
+)
 import pandas as pd
 import numpy as np
+from scipy.stats import f_oneway
+from typing import Tuple
 
 
 def compute_auc_roc_with_percentile_grid(
@@ -226,3 +233,36 @@ def calculate_optimal_utility_and_cash_transfer_size_table(
     )
 
     return results
+
+
+def calculate_rank_residuals_table_by_characteristic(
+    data: pd.DataFrame,
+) -> Tuple[pd.DataFrame, float, float]:
+    """
+    Calculate rank residuals by characteristic.
+
+    Args:
+        data (pd.DataFrame): Data containing consumption values, weights, and characteristic.
+
+    Returns:
+        pd.DataFrame: DataFrame containing rank residuals statistics by characteristic.
+    """
+    # Validate that input data has the required columns
+    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+
+    results_df = calculate_rank_residuals_by_characteristic(data)
+    means = [np.mean(r) for r in results_df]
+    stds = [np.std(r) for r in results_df]
+    anova_results = f_oneway(*tuple(results_df))
+
+    return (
+        pd.DataFrame(
+            {
+                "mean_rank_residual": means,
+                "std_rank_residual": stds,
+            },
+            index=results_df.index,
+        ),
+        anova_results.statistic,
+        anova_results.pvalue,
+    )

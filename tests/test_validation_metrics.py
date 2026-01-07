@@ -49,6 +49,7 @@ from cider.validation_metrics.core import (
     compute_auc_roc_with_percentile_grid,
     compute_utility_grid,
     calculate_optimal_utility_and_cash_transfer_size_table,
+    calculate_rank_residuals_table_by_characteristic,
 )
 from conftest import (
     HOUSEHOLD_CONSUMPTION_DATA,
@@ -366,6 +367,9 @@ class TestValidationMetricsDependencies:
 class TestValidationMetricsCore:
 
     household_consumption_data = pd.DataFrame(HOUSEHOLD_CONSUMPTION_DATA)
+    household_consumption_data_w_characteristic = pd.DataFrame(
+        HOUSEHOLD_CONSUMPTION_DATA_W_CHARACTERISTIC
+    )
 
     def test_missing_columns_raise_errors(self):
         for col in ConsumptionData.model_fields.keys():
@@ -374,6 +378,28 @@ class TestValidationMetricsCore:
                 compute_auc_roc_with_percentile_grid(
                     household_data_no_cols, num_grid_points=10
                 )
+            with pytest.raises(ValueError):
+                compute_utility_grid(
+                    household_data_no_cols,
+                    cash_transfer_amount=1000,
+                    num_grid_points=10,
+                    constant_relative_risk_aversion=3.0,
+                )
+            with pytest.raises(ValueError):
+                calculate_optimal_utility_and_cash_transfer_size_table(
+                    household_data_no_cols,
+                    cash_transfer_amount=1000,
+                    num_grid_points=10,
+                    constant_relative_risk_aversion=3.0,
+                )
+
+    def test_missing_columns_raise_errors_with_characteristic(self):
+        for col in ConsumptionDataWithCharacteristic.model_fields.keys():
+            household_data_no_cols = (
+                self.household_consumption_data_w_characteristic.drop(columns=[col])
+            )
+            with pytest.raises(ValueError):
+                calculate_rank_residuals_table_by_characteristic(household_data_no_cols)
 
     def test_compute_auc_roc_with_percentile_grid(self):
         results_df = compute_auc_roc_with_percentile_grid(
@@ -429,3 +455,22 @@ class TestValidationMetricsCore:
             1222.22,
             1222.22,
         ]
+
+    def test_calculate_rank_residuals_table_by_characteristic(self):
+        results_df, anova_f_statistic, anova_p_value = (
+            calculate_rank_residuals_table_by_characteristic(
+                self.household_consumption_data_w_characteristic
+            )
+        )
+        print(results_df)
+        print(f"ANOVA F-statistic: {anova_f_statistic}, p-value: {anova_p_value}")
+        assert pytest.approx(results_df.loc["group_1", :].to_list(), 1e-2) == [
+            0.0,
+            0.0247,
+        ]
+        assert pytest.approx(results_df.loc["group_2", :].to_list(), 1e-2) == [
+            0.0101,
+            0.0143,
+        ]
+        assert pytest.approx(anova_f_statistic, 1e-2) == 0.25
+        assert pytest.approx(anova_p_value, 1e-2) == 0.6433
