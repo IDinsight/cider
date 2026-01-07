@@ -224,7 +224,7 @@ def calculate_utility(
         constant_relative_risk_aversion (float): Coefficient of relative risk aversion (CRRA) utility function.
 
     Returns:
-        float: The utility obtained by targeting the specified percentile of the population with the speciied cash transfer amount.
+        float: The utility obtained by targeting the specified percentile of the population with the specified cash transfer amount.
     """
 
     # Validate that input data has the required columns
