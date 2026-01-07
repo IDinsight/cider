@@ -231,7 +231,7 @@ def calculate_utility(
     _validate_dataframe(data, required_schema=ConsumptionData)
 
     # Validate threshold values are correct
-    if not (0.0 < threshold_percentile < 100):
+    if not (0.0 <= threshold_percentile <= 100):
         raise ValueError("threshold_percentile must be between 0 and 100")
 
     # Compute utility
