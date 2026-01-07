@@ -32,7 +32,7 @@ from enum import Enum
 
 
 class ConsumptionColumn(str, Enum):
-    GROUNTRUTH = "groundtruth_consumption"
+    GROUNDTRUTH = "groundtruth_consumption"
     PROXY = "proxy_consumption"
 
 
