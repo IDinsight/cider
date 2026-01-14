@@ -153,7 +153,7 @@ def plot_rank_residual_distributions_per_characteristic_value(
     Plot rank residual distributions per characteristic value.
 
     Args:
-        rank_residuals_df: DataFrame containing rank residuals with "rank_residual" and "characteristic_value" columns.
+        rank_residuals_series: Series containing rank residuals for each characteristic value; the index holds characteristic values and each element is an array-like of residuals.
         characteristic_name: Name of the characteristic being plotted. Defaults to "Characteristic".
         **plot_kwargs: Additional keyword arguments for matplotlib plot function (e.g., color, linestyle, etc.)
     """
