@@ -36,7 +36,7 @@ def plot_roc_precision_recall_curves(
     auc_roc_precision_recall_with_percentile_grid: pd.DataFrame,
     fixed_groundtruth_percentile: float,
     **plotting_kwargs,
-) -> tuple[plt.Figure, plt.Axes]:
+) -> tuple[plt.Figure, tuple[plt.Axes, plt.Axes]]:
     """
     Plot ROC curves given AUC-ROC with percentile grid data.
 
@@ -98,7 +98,7 @@ def plot_roc_precision_recall_curves(
         ax2.legend()
 
         fig.tight_layout()
-    return fig, ax1
+    return fig, (ax1, ax2)
 
 
 def plot_utility_values(
