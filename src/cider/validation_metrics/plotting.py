@@ -41,7 +41,7 @@ def plot_roc_precision_recall_curves(
     Plot ROC curves given AUC-ROC with percentile grid data.
 
     Args:
-        auc_roc_with_percentile_grid: DataFrame containing AUC-ROC, precision and recall with percentile grid data with "true_positive_rate", "false_positive_rate", "precision", "recall", and "percentile" columns.
+        auc_roc_precision_recall_with_percentile_grid: DataFrame containing AUC-ROC, precision and recall with percentile grid data with "true_positive_rate", "false_positive_rate", "precision", "recall", and "percentile" columns.
         fixed_groundtruth_percentile (float): fixed_groundtruth_percentile (float):  Fixed value of percentile for groundtruth consumption values.
         **plotting_kwargs: Additional keyword arguments for matplotlib plot function (e.g., color, linestyle, etc.)
     """
