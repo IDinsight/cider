@@ -303,7 +303,7 @@ def plot_all_fairness_metrics_per_characteristic_value(
         )
         axes[2].set_ylabel("Population percentage")
         axes[2].set_title(
-            f"Precision {characteristic_name} Value\n"
+            f"Precision per {characteristic_name} Value\n"
             + f"Precision between targeted populations (p-value): {statistics_df.precision_pvalue[0]:.4f}\n"
         )
 
