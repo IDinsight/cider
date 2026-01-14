@@ -283,7 +283,7 @@ def plot_all_fairness_metrics_per_characteristic_value(
         )
         axes[1].set_ylabel("Population percentage")
         axes[1].set_title(
-            f"Recall {characteristic_name} Value\n"
+            f"Recall per {characteristic_name} Value\n"
             + f"Recall between targeted populations (p-value): {statistics_df.recall_pvalue[0]:.4f}\n"
         )
 
