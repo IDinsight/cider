@@ -113,7 +113,7 @@ def plot_utility_values(
     Plot utility values given utility grid data.
 
     Args:
-        utility_grid_df: DataFrame containing utility grid data with "percentile" and "utilit_proxy" columns.
+        utility_grid_df: DataFrame containing utility grid data with "percentile" and "utility_proxy" columns.
         optimal_percentile: Optimal percentile value.
         optimal_utility: Optimal utility value.
         cash_transfer_amount: Cash transfer amount used in utility calculation.
