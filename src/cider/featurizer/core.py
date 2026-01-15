@@ -60,7 +60,7 @@ from .dependencies import (
     _great_circle_distance,
 )
 from cider.schemas import TransactionScope
-from cider.utils import _validate_dataframe
+from cider.utils import validate_dataframe
 
 
 # CDR features
@@ -75,7 +75,7 @@ def get_active_days(spark_df: SparkDataFrame) -> SparkDataFrame:
         df: Dataframe with additional 'active_days' column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     out = spark_df.groupby("caller_id").agg(
         # Overall
@@ -123,7 +123,7 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
         df: Dataframe with num unique callers for each combination of is_weekend, is_daytime, and transaction_type
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Count distinct contacts per caller, disaggregated by type and time of day
     spark_df_unique_contacts = spark_df.groupby(
@@ -154,7 +154,7 @@ def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
         df: Dataframe with call duration statistics columns for each weekday/weekend and day/nighttime combination.
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     filtered_df = spark_df.filter(col("transaction_type") == "call")
 
@@ -193,7 +193,7 @@ def get_percentage_of_nocturnal_interactions(
         df: Dataframe with percentage of nocturnal interactions column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     count_df = spark_df.groupby("caller_id").agg(
         count("*").alias("total_interactions"),
@@ -233,7 +233,7 @@ def get_percentage_of_initiated_conversations(
         df: Dataframe with percentage of initiated conversations column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # TODO: this calculation is copied from deprecated.helpers.features.precent_initiated_conversations
     # but it seems to calculate the average number of initiated conversations per daytime / weekend convo
@@ -276,7 +276,7 @@ def get_percentage_of_initiated_calls(
         df: Dataframe with percentage of initiated calls column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     spark_df_filtered = spark_df.where(col("transaction_type") == "call")
 
@@ -315,7 +315,7 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
         df: Dataframe with text response time delay statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Filter to only text transactions
     filtered_df = spark_df.filter(col("transaction_type") == "text")
@@ -373,7 +373,7 @@ def get_text_response_rate(
         df: Dataframe with text response rate columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Filter to only text transactions
     filtered_df = spark_df.filter(col("transaction_type") == "text")
@@ -420,7 +420,7 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
         df: Dataframe with entropy of interactions column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     window = Window.partitionBy(
         "caller_id", "is_weekend", "is_daytime", "transaction_type"
@@ -466,7 +466,7 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
         df: Dataframe with outgoing call fraction statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Get interaction counts per caller-recipient pair
     count_df = (
@@ -543,7 +543,7 @@ def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame
         df: Dataframe with interaction statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     summary_stats_cols = _get_summary_stats_cols("interaction_count")
     interaction_df = (
@@ -585,7 +585,7 @@ def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
         df: Dataframe with inter-event time statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Calculate inter-event times and corresponding summary stats
     window = Window.partitionBy(
@@ -637,7 +637,7 @@ def get_pareto_principle_interaction_stats(
         df: Dataframe with Pareto principle interaction statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Set up windows for calculations
     window_1 = Window.partitionBy(
@@ -713,7 +713,7 @@ def get_pareto_principle_call_duration_stats(
         df: Dataframe with Pareto principle call duration statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Filter to only call transactions
     filtered_df = spark_df.filter(col("transaction_type") == "call")
@@ -784,7 +784,7 @@ def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFr
         df: Dataframe with number of interactions columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     count_df = spark_df.groupby(
         "caller_id",
@@ -834,7 +834,7 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
         df: Dataframe with number of unique antennas column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     antenna_df = spark_df.groupby("caller_id", "is_daytime", "is_weekend").agg(
         countDistinct("caller_antenna_id").alias("num_unique_antennas")
@@ -864,7 +864,7 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
         df: Dataframe with entropy of antennas column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     window = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
     entropy_df = (
@@ -919,8 +919,8 @@ def get_radius_of_gyration(
         df: Dataframe with radius of gyration column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
-    _validate_dataframe(spark_antennas_df, AntennaDataGeometry)
+    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_antennas_df, AntennaDataGeometry)
 
     # Join antennas and CDR data
     joined_df = spark_df.join(spark_antennas_df, on="caller_antenna_id", how="inner")
@@ -983,7 +983,7 @@ def get_pareto_principle_antennas(
         df: Dataframe with Pareto principle antennas column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Configure windows for calculations
     window_1 = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
@@ -1037,7 +1037,7 @@ def get_average_num_of_interactions_from_home_antennas(
         df: Dataframe with percentage of interactions from home antennas column
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Identify home antenna per caller:
     # home antenna is the antenna from which the most nightime-calls are made
@@ -1090,7 +1090,7 @@ def get_international_interaction_statistics(
         df: Dataframe with international transaction statistics per transaction type: number of recipients, number of unique recipients, number of unique days, total call duration, etc.
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged)
 
     international_df = spark_df.filter(
         col("transaction_scope") == TransactionScope.INTERNATIONAL.value
@@ -1140,8 +1140,8 @@ def get_caller_counts_per_region(
         df: Dataframe with location features columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordTagged)
-    _validate_dataframe(spark_antenna_df, AntennaDataGeometryWithRegion)
+    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_antenna_df, AntennaDataGeometryWithRegion)
 
     # Merge CDR and antenna data by caller ID
     joined_df = spark_df.join(spark_antenna_df, on="caller_antenna_id", how="inner")
@@ -1173,7 +1173,7 @@ def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with mobile data usage statistics columns
     """
-    _validate_dataframe(spark_df, MobileDataUsageDataWithDay)
+    validate_dataframe(spark_df, MobileDataUsageDataWithDay)
     summary_stats_aggs = _get_summary_stats_cols(
         "volume",
         [
@@ -1206,7 +1206,7 @@ def get_mobile_money_amount_stats(
         df: Dataframe with mobile money transaction statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+    validate_dataframe(spark_df, MobileMoneyDataWithDirection)
 
     summary_stats_cols = [
         StatsComputationMethodEnum.MEAN,
@@ -1247,7 +1247,7 @@ def get_mobile_money_transaction_stats(
         df: Dataframe with mobile money transaction statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+    validate_dataframe(spark_df, MobileMoneyDataWithDirection)
 
     summary_stats_df = spark_df.groupby("primary_id", "transaction_type").agg(
         count("correspondent_id").alias("num_transactions"),
@@ -1275,7 +1275,7 @@ def get_mobile_money_balance_stats(
         df: Dataframe with mobile money balance statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+    validate_dataframe(spark_df, MobileMoneyDataWithDirection)
 
     summary_stats_cols = [
         StatsComputationMethodEnum.MEAN,
@@ -1319,7 +1319,7 @@ def get_recharge_amount_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
         df: Dataframe with recharge amount statistics columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, RechargeDataWithDay)
+    validate_dataframe(spark_df, RechargeDataWithDay)
 
     summary_stats_cols = _get_summary_stats_cols(
         "amount",
