@@ -290,17 +290,14 @@ def correct_generated_synthetic_mobile_money_transaction_data(
                 MobileMoneyTransactionType.CASHOUT.value,
             ]
         )
-        for col in [
-            "recipient_id",
-            "recipient_balance_before",
-            "recipient_balance_after",
-        ]:
-            mobile_money_df.loc[mask, col] = None
+        mobile_money_df.loc[mask, "recipient_id"] = None
+        mobile_money_df.loc[mask, "recipient_balance_before"] = None
+        mobile_money_df.loc[mask, "recipient_balance_after"] = None
 
         # For transactions with recipient_id, ensure recipient_balance_after matches recipient_balance_before + amount
-        mobile_money_df.loc["recipient_balance_after"] = (
-            mobile_money_df.loc["recipient_balance_before"]
-            + mobile_money_df.loc["amount"]
+        mobile_money_df.loc[~mask, "recipient_balance_after"] = (
+            mobile_money_df.loc[~mask, "recipient_balance_before"]
+            + mobile_money_df.loc[~mask, "amount"]
         )
 
     return mobile_money_df

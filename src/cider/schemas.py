@@ -159,28 +159,51 @@ class MobileMoneyTransactionData(BaseModel):
         ]:
             if (
                 self.recipient_id is not None
-                or self.recipient_balance_after is not None
-                or self.recipient_balance_before is not None
+                or (
+                    self.recipient_balance_after is not None
+                    and ~np.isnan(self.recipient_balance_after)
+                )
+                or (
+                    self.recipient_balance_before is not None
+                    and ~np.isnan(self.recipient_balance_before)
+                )
             ):
                 raise ValueError(
                     f"Recipient ID and transaction balances should be None for transaction type {self.transaction_type}."
                 )
 
         # For other transactions, recipient balances should match, if provided
-        recipient_vals = [
-            self.recipient_balance_after,
-            self.recipient_balance_before,
-            self.recipient_id,
-        ]
-        if not all([val not in [None, np.nan] for val in recipient_vals]) or not all(
-            [val not in [None, np.nan] for val in recipient_vals]
-        ):
+        condition_1 = (
+            self.recipient_id is None
+            and (
+                self.recipient_balance_after is None
+                or np.isnan(self.recipient_balance_after)
+            )
+            and (
+                self.recipient_balance_before is None
+                or np.isnan(self.recipient_balance_before)
+            )
+        )
+        condition_2 = (
+            self.recipient_id is not None
+            and (
+                self.recipient_balance_after is not None
+                and ~np.isnan(self.recipient_balance_after)
+            )
+            and (
+                self.recipient_balance_before is not None
+                and ~np.isnan(self.recipient_balance_before)
+            )
+        )
+        if not (condition_1 or condition_2):
             raise ValueError(
                 "If any recipient information is provided, all recipient fields must be provided."
             )
         if (
-            self.recipient_balance_after is not None
-            and self.recipient_balance_before is not None
+            self.recipient_balance_before is not None
+            and self.recipient_balance_after is not None
+            and ~np.isnan(self.recipient_balance_before)
+            and ~np.isnan(self.recipient_balance_after)
         ):
             if (
                 self.recipient_balance_after
