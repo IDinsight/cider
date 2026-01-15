@@ -25,10 +25,23 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
+import types
+from typing import get_origin
+import warnings
+from typing_extensions import get_args
 from pydantic import BaseModel, ValidationError
 from pyspark.sql import DataFrame as SparkDataFrame
 from pandas import DataFrame as PandasDataFrame
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from cider.schemas import (
+    CallDataRecordData,
+    AntennaData,
+    MobileMoneyTransactionData,
+    MobileMoneyTransactionType,
+)
+from enum import Enum
 
 
 def validate_dataframe(
@@ -70,3 +83,224 @@ def validate_dataframe(
                 raise ValueError(
                     f"Row {index} does not conform to the required schema: {e}"
                 ) from e
+
+
+# Synthetic data generation functions
+
+
+def _get_column_types(
+    schema: type[BaseModel], keep_optional_columns: bool
+) -> dict[str, type]:
+    """
+    Get a mapping of column names to their types from a Pydantic BaseModel schema.
+
+    Args:
+        schema: Pydantic BaseModel schema to extract column types from
+        keep_optional_columns: Whether to keep or discard optional types (i.e., Union types with NoneType)
+    Returns:
+        Dictionary mapping column names to their types
+    """
+    column_types = {}
+    for key, value in schema.model_fields.items():
+        origin = get_origin(value.annotation)
+        if origin == types.UnionType:
+            args = get_args(value.annotation)
+            if keep_optional_columns and type(None) in args:
+                # Pick the first argument that is not NoneType
+                value_type = next(arg for arg in args if arg is not type(None))
+            elif not keep_optional_columns and type(None) in args:
+                continue  # keep_optional_columns is False, skip this column
+            else:
+                # If Union types are not none, simply take the first type
+                value_type = next(arg for arg in get_args(value))
+        else:
+            value_type = value.annotation
+
+        column_types[key] = value_type
+
+    return column_types
+
+
+def generate_synthetic_data(
+    schema: type[BaseModel],
+    num_data_points: int,
+    random_seed: int = 42,
+    keep_optional_columns: bool = False,
+) -> PandasDataFrame:
+    """
+    Generate synthetic CDR data for testing purposes.
+
+    Args:
+        schema: Pydantic BaseModel schema to generate data for
+        num_data_points: Number of synthetic data points to generate
+        random_seed: Random seed for reproducibility
+        keep_optional_columns: Whether to include optional fields in the generated data
+
+    Returns:
+        Pandas DataFrame with synthetic CDR data
+    """
+    # Raise warnings for specific schemas
+    if schema == AntennaData:
+        warnings.warn(
+            "Generating synthetic data for AntennaData schema may result in unrealistic latitude and longitude values. "
+            "Use the `generate_antenna_data` function for more realistic antenna data.",
+            Warning,
+        )
+
+    if schema == CallDataRecordData:
+        warnings.warn(
+            "Generating synthetic data for CallDataRecordData schema may result in unrealistic duration values and incompatible antenna values."
+            "Use the `correct_generated_synthetic_cdr_data` function to correct these values after generation.",
+            Warning,
+        )
+
+    if schema == MobileMoneyTransactionData:
+        warnings.warn(
+            "Generating synthetic data for MobileMoneyTransactionData schema may result in unrealistic amount values."
+            "Use the `correct_generated_synthetic_mobile_money_transaction_data` function to correct these values after generation.",
+            Warning,
+        )
+
+    column_types = _get_column_types(schema, keep_optional_columns)
+
+    np.random.seed(random_seed)
+    data = {}
+
+    for key, value in column_types.items():
+        if value is str:
+            data[key] = [f"{key}_{i}" for i in range(num_data_points)]
+        elif value is int:
+            data[key] = np.random.randint(0, 1000, size=num_data_points).tolist()
+        elif value is float:
+            data[key] = np.random.uniform(0, 1000, size=num_data_points).tolist()
+        elif value is datetime:
+            start_date = pd.to_datetime("2023-01-01")
+            data[key] = [
+                start_date + pd.Timedelta(days=int(np.random.uniform(0, 365)))
+                for _ in range(num_data_points)
+            ]
+        elif isinstance(value, type) and issubclass(value, Enum):
+            enum_values = [e.value for e in list(value)]
+            data[key] = np.random.choice(enum_values, size=num_data_points).tolist()
+        else:
+            raise ValueError(f"Unsupported column type: {value} for column {key}")
+
+    return pd.DataFrame(data)
+
+
+def correct_generated_synthetic_cdr_data(
+    cdr_df: PandasDataFrame, num_unique_antenna_ids: int, random_seed: int = 42
+) -> PandasDataFrame:
+    """
+    Correct synthetic CDR data for testing purposes.
+
+    Args:
+        cdr_df: Pandas DataFrame with synthetic CDR data
+        num_unique_antenna_ids: Number of unique antenna IDs to use in the corrected data
+        random_seed: Random seed for reproducibility
+    Returns:
+        Pandas DataFrame with corrected synthetic CDR data
+    """
+    validate_dataframe(
+        cdr_df, required_schema=CallDataRecordData, check_data_points=True
+    )
+
+    # Ensure that duraction for text data is zero
+    cdr_df.loc[cdr_df["transaction_type"] == "text", "duration"] = 0.0
+
+    # Redo antenna ids to be consistent
+    np.random.seed(random_seed)
+    unique_antenna_ids = [f"antenna_id_{i}" for i in range(int(num_unique_antenna_ids))]
+    cdr_df["caller_antenna_id"] = np.random.choice(unique_antenna_ids, size=len(cdr_df))
+    if "recipient_antenna_id" in cdr_df.columns:
+        cdr_df["recipient_antenna_id"] = np.random.choice(
+            unique_antenna_ids, size=len(cdr_df)
+        )
+    return cdr_df
+
+
+def generate_antenna_data(num_antennas: int, random_seed: int = 42) -> PandasDataFrame:
+    """
+    Generate synthetic antenna data for testing purposes.
+
+    Args:
+        num_antennas: Number of unique antennas to generate
+        random_seed: Random seed for reproducibility
+    Returns:
+        Pandas DataFrame with synthetic antenna data
+    """
+    np.random.seed(random_seed)
+    antenna_ids = [f"antenna_id_{i}" for i in range(num_antennas)]
+    tower_ids = [f"tower_id_{i}" for i in range(num_antennas)]
+    latitudes = np.random.uniform(-90, 90, size=num_antennas).tolist()
+    longitudes = np.random.uniform(-180, 180, size=num_antennas).tolist()
+
+    data = {
+        "antenna_id": antenna_ids,
+        "tower_id": tower_ids,
+        "latitude": latitudes,
+        "longitude": longitudes,
+    }
+
+    return pd.DataFrame(data)
+
+
+def correct_generated_synthetic_mobile_money_transaction_data(
+    mobile_money_df: PandasDataFrame, random_seed: int = 42
+) -> PandasDataFrame:
+    """
+    Correct synthetic Mobile Money Transaction data for testing purposes.
+
+    Args:
+        mobile_money_df: Pandas DataFrame with synthetic Mobile Money Transaction data
+
+    Returns:
+        Pandas DataFrame with corrected synthetic Mobile Money Transaction data
+    """
+    validate_dataframe(
+        mobile_money_df,
+        required_schema=MobileMoneyTransactionData,
+        check_data_points=False,
+    )
+
+    # Ensure cashin transactions have negative amounts
+    mobile_money_df.loc[
+        mobile_money_df["transaction_type"] == MobileMoneyTransactionType.CASHIN.value,
+        "amount",
+    ] = -abs(
+        mobile_money_df.loc[
+            mobile_money_df["transaction_type"]
+            == MobileMoneyTransactionType.CASHIN.value,
+            "amount",
+        ]
+    )
+
+    # Ensure caller_balance_after matches caller_balance_before - amount
+    mobile_money_df["caller_balance_after"] = (
+        mobile_money_df["caller_balance_before"] - mobile_money_df["amount"]
+    )
+
+    if "recipient_id" in mobile_money_df.columns:
+
+        # Ensure that recipient_id, recipient_balance_before, and recipient_balance_after are
+        # None for cashin and cashout transactions
+        mask = mobile_money_df["transaction_type"].isin(
+            [
+                MobileMoneyTransactionType.CASHIN.value,
+                MobileMoneyTransactionType.CASHOUT.value,
+            ]
+        )
+        for col in [
+            "recipient_id",
+            "recipient_balance_before",
+            "recipient_balance_after",
+        ]:
+            mobile_money_df.loc[mask, col] = None
+
+        # For transactions with recipient_id, ensure recipient_balance_after matches recipient_balance_before + amount
+        mobile_money_df.loc["recipient_balance_after"] = (
+            mobile_money_df.loc["recipient_balance_before"]
+            + mobile_money_df.loc["amount"]
+        )
+
+    return mobile_money_df

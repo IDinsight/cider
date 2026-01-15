@@ -352,7 +352,8 @@ class TestFeaturizerDependencies:
             "transaction_type": ["text", "text", "call", "text", "text", "text"],
         }
         pd_cdr_data = pd.concat(
-            [pd.DataFrame(CDR_DATA), pd.DataFrame(conversations)], ignore_index=True
+            [pd.DataFrame(CDR_DATA).copy(), pd.DataFrame(conversations)],
+            ignore_index=True,
         )
         spark_cdr_data = spark.createDataFrame(pd_cdr_data)
         spark_cdr_tagged = identify_and_tag_conversations(spark_cdr_data, max_wait=3600)
@@ -360,7 +361,7 @@ class TestFeaturizerDependencies:
 
         assert "conversation" in pd_cdr_tagged.columns
         convo_times = pd_cdr_tagged["conversation"].dropna().unique()
-        assert len(convo_times) == 5
+        assert len(convo_times) == 4
 
         for col in [
             key

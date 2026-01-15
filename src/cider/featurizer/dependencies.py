@@ -523,7 +523,9 @@ def identify_and_tag_conversations(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordData)
 
-    window = Window.partitionBy("caller_id", "recipient_id").orderBy("timestamp")
+    window = Window.partitionBy("caller_id", "recipient_id").orderBy(
+        "timestamp", "transaction_type"
+    )
 
     spark_df = (
         spark_df.withColumn(
