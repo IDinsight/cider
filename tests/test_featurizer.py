@@ -348,6 +348,7 @@ class TestFeaturizerDependencies:
                     "2023-01-11 13:55:00",
                 ]
             ),
+            "duration": [0.0, 0.0, 100.0, 0.0, 0.0, 0.0],
             "transaction_scope": ["domestic"] * 6,
             "transaction_type": ["text", "text", "call", "text", "text", "text"],
         }
