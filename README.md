@@ -14,7 +14,7 @@
 3. Some OS-specific may not be installed by default, for geographic packages (`geopandas`, `geovoronoi`, etc) you may need to install [GDAL](https://gdal.org/en/stable/download.html).
 
 
-* Installation steps:*
+*Installation steps:*
  1. Clone the repository: `git clone https://github.com/IDinsight/cider.git`
  2. From the root directory `make fresh-env`: this will establish a venv with all the needed dependencies.
  3. Once your venv is made you can use `uv run [command]` to run a single CLI command inside the venv.
