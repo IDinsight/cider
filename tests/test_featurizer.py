@@ -362,7 +362,7 @@ class TestFeaturizerDependencies:
 
         assert "conversation" in pd_cdr_tagged.columns
         convo_times = pd_cdr_tagged["conversation"].dropna().unique()
-        assert len(convo_times) == 4
+        assert len(convo_times) == 5
 
         for col in [
             key
