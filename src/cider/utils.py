@@ -338,7 +338,7 @@ def generate_synthetic_shapefile(
         num_regions: Number of regions to create
         random_seed: Random seed for reproducibility
     Returns:
-        gpd.GeoDataFrame containing region names and corresponding shape gemoetry
+        gpd.GeoDataFrame containing region names and corresponding shape geometry
     """
     validate_dataframe(antenna_df, AntennaData)
 
