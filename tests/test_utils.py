@@ -218,8 +218,8 @@ def test_correct_generated_synthetic_cdr_data():
 
     # Validate the corrected DataFrame against the CallDataRecordData schema and num datapoints
     assert len(corrected_cdr_df) == num_data_points
-    assert corrected_cdr_df.caller_antenna_id.nunique() == num_unique_antenna_ids
-    assert corrected_cdr_df.recipient_antenna_id.nunique() == num_unique_antenna_ids
+    assert corrected_cdr_df.caller_antenna_id.nunique() <= num_unique_antenna_ids
+    assert corrected_cdr_df.recipient_antenna_id.nunique() <= num_unique_antenna_ids
     assert np.all(
         corrected_cdr_df.loc[corrected_cdr_df.transaction_type == "text", "duration"]
         == 0

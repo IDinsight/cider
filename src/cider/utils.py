@@ -39,6 +39,8 @@ from cider.schemas import (
     CallDataRecordData,
     AntennaData,
     MobileMoneyTransactionData,
+    RechargeData,
+    MobileDataUsageData,
     MobileMoneyTransactionType,
 )
 from enum import Enum
@@ -128,7 +130,7 @@ def generate_synthetic_data(
     keep_optional_columns: bool = False,
 ) -> PandasDataFrame:
     """
-    Generate synthetic CDR data for testing purposes.
+    Generate synthetic data for testing purposes.
 
     Args:
         schema: Pydantic BaseModel schema to generate data for
@@ -208,9 +210,10 @@ def correct_generated_synthetic_cdr_data(
     # Ensure that duraction for text data is zero
     cdr_df.loc[cdr_df["transaction_type"] == "text", "duration"] = 0.0
 
-    # Redo antenna ids to be consistent
     np.random.seed(random_seed)
-    unique_antenna_ids = [f"antenna_id_{i}" for i in range(int(num_unique_antenna_ids))]
+
+    # Redo antenna ids to be consistent
+    unique_antenna_ids = [f"antenna_id_{i}" for i in range(num_unique_antenna_ids)]
     cdr_df["caller_antenna_id"] = np.random.choice(unique_antenna_ids, size=len(cdr_df))
     if "recipient_antenna_id" in cdr_df.columns:
         cdr_df["recipient_antenna_id"] = np.random.choice(
@@ -246,7 +249,7 @@ def generate_antenna_data(num_antennas: int, random_seed: int = 42) -> PandasDat
 
 
 def correct_generated_synthetic_mobile_money_transaction_data(
-    mobile_money_df: PandasDataFrame, random_seed: int = 42
+    mobile_money_df: PandasDataFrame,
 ) -> PandasDataFrame:
     """
     Correct synthetic Mobile Money Transaction data for testing purposes.
@@ -301,3 +304,69 @@ def correct_generated_synthetic_mobile_money_transaction_data(
         )
 
     return mobile_money_df
+
+
+def generate_all_synthetic_data(
+    num_data_points: int,
+    num_unqiue_antenna_ids: int,
+    random_seed: int = 42,
+) -> dict[str, PandasDataFrame]:
+    """
+    Generate synthetic data for all schemas for testing purposes.
+    Args:
+        num_data_points: Number of synthetic data points to generate for each schema
+        num_unqiue_antenna_ids: Number of unique antenna IDs to use in the CDR data
+        random_seed: Random seed for reproducibility
+    Returns:
+        Dictionary mapping schema names to Pandas DataFrames with synthetic data
+    """
+    synthetic_data = {}
+
+    # Generate synthetic CDR data
+    synthetic_cdr_df = generate_synthetic_data(
+        schema=CallDataRecordData,
+        num_data_points=num_data_points,
+        random_seed=random_seed,
+        keep_optional_columns=True,
+    )
+    synthetic_data["CallDataRecordData"] = correct_generated_synthetic_cdr_data(
+        synthetic_cdr_df,
+        num_unqiue_antenna_ids,
+        random_seed=random_seed,
+    )
+
+    # Generate synthetic Mobile Money Transaction data
+    synthetic_mobile_money_df = generate_synthetic_data(
+        schema=MobileMoneyTransactionData,
+        num_data_points=num_data_points,
+        random_seed=random_seed,
+        keep_optional_columns=True,
+    )
+    synthetic_data["MobileMoneyTransactionData"] = (
+        correct_generated_synthetic_mobile_money_transaction_data(
+            synthetic_mobile_money_df
+        )
+    )
+
+    # Generate synthetic Antenna data
+    synthetic_data["AntennaData"] = generate_antenna_data(
+        num_antennas=num_unqiue_antenna_ids, random_seed=random_seed
+    )
+
+    # Generate synthetic Recharge data
+    synthetic_data["RechargeData"] = generate_synthetic_data(
+        schema=RechargeData,
+        num_data_points=num_data_points,
+        random_seed=random_seed,
+        keep_optional_columns=True,
+    )
+
+    # Generate synthetic Mobile Data Usage data
+    synthetic_data["MobileDataUsageData"] = generate_synthetic_data(
+        schema=MobileDataUsageData,
+        num_data_points=num_data_points,
+        random_seed=random_seed,
+        keep_optional_columns=True,
+    )
+
+    return synthetic_data
