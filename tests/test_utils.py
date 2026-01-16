@@ -32,9 +32,10 @@ from cider.utils import (
     generate_antenna_data,
     correct_generated_synthetic_mobile_money_transaction_data,
     correct_generated_synthetic_cdr_data,
+    generate_synthetic_shapefile,
 )
 import pytest
-from conftest import CDR_DATA
+from conftest import CDR_DATA, ANTENNA_DATA
 import pandas as pd
 from cider.schemas import (
     CallDataRecordData,
@@ -232,3 +233,17 @@ def test_correct_generated_synthetic_cdr_data():
         )
         is None
     )
+
+
+@pytest.mark.parametrize(
+    "num_regions",
+    [1, 2],
+)
+def test_generate_synthetic_shapefile(num_regions):
+    antenna_df = pd.DataFrame(ANTENNA_DATA).copy()
+    shapefile_gdf = generate_synthetic_shapefile(
+        antenna_df=antenna_df, num_regions=num_regions
+    )
+
+    # Validate the synthetic shapefile GeoDataFrame against the expected number of regions
+    assert len(shapefile_gdf) == num_regions

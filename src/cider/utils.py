@@ -34,6 +34,7 @@ from pyspark.sql import DataFrame as SparkDataFrame
 from pandas import DataFrame as PandasDataFrame
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 from datetime import datetime
 from cider.schemas import (
     CallDataRecordData,
@@ -43,7 +44,27 @@ from cider.schemas import (
     MobileDataUsageData,
     MobileMoneyTransactionType,
 )
+from shapely.geometry import box
 from enum import Enum
+from pyspark.sql import SparkSession
+
+
+SPARK_SESSION: SparkSession | None = None
+
+
+def get_spark_session():
+    """
+    Create a spark session for converting pandas dataframes into spark dataframes.
+    """
+    global SPARK_SESSION
+    if not SPARK_SESSION:
+        SPARK_SESSION = (
+            SparkSession.builder.master("local[1]")
+            .appName("pytest-spark")
+            .getOrCreate()
+        )
+
+    return SPARK_SESSION
 
 
 def validate_dataframe(
@@ -304,6 +325,66 @@ def correct_generated_synthetic_mobile_money_transaction_data(
         )
 
     return mobile_money_df
+
+
+def generate_synthetic_shapefile(
+    antenna_df: pd.DataFrame, num_regions: int, random_seed: int = 42
+) -> gpd.GeoDataFrame:
+    """
+    Generate shapefile for regions based on antenna data
+
+    Args:
+        antenna_df: Synthetic antenna data
+        num_regions: Number of regions to create
+        random_seed: Random seed for reproducibility
+    Returns:
+        gpd.GeoDataFrame containing region names and corresponding shape gemoetry
+    """
+    validate_dataframe(antenna_df, AntennaData)
+
+    # Get convex hull of antenna locations
+    antenna_gdf = gpd.GeoDataFrame(
+        antenna_df.antenna_id,
+        geometry=gpd.points_from_xy(
+            x=antenna_df["longitude"], y=antenna_df["latitude"]
+        ),
+    ).set_crs(epsg=4326)
+
+    convex_hull = antenna_gdf.union_all().convex_hull.buffer(1.0)
+
+    # Sample random points inside the polygon for tesselation
+    np.random.seed(random_seed)
+    minx, miny, maxx, maxy = convex_hull.bounds
+    x_grid = np.sort(
+        np.random.uniform(low=minx, high=maxx, size=int(np.ceil(np.sqrt(num_regions))))
+    )
+    x_grid = [minx] + list(x_grid) + [maxx]
+
+    y_grid = np.sort(
+        np.random.uniform(low=miny, high=maxy, size=int(np.ceil(np.sqrt(num_regions))))
+    )
+    y_grid = [miny] + list(y_grid) + [maxy]
+
+    regions: dict[str, list] = {"region": [], "geometry": []}
+    num_regions_found = 0
+    for x1, x2 in zip(x_grid[:-1], x_grid[1:]):
+        for y1, y2 in zip(y_grid[:-1], y_grid[1:]):
+            if num_regions_found == num_regions:
+                break
+            if num_regions_found == (num_regions - 1):
+                cell = box(x1, y1, maxx, maxy)
+            else:
+                cell = box(x1, y1, x2, y2)
+            if convex_hull.intersects(cell):
+                regions["region"].append(f"region_{num_regions_found}")
+                regions["geometry"].append(cell.intersection(convex_hull))
+                num_regions_found += 1
+
+    regions_gdf = gpd.GeoDataFrame(
+        {"region_name": regions["region"], "geometry": regions["geometry"]},
+        crs="EPSG:4326",
+    )
+    return regions_gdf
 
 
 def generate_all_synthetic_data(
