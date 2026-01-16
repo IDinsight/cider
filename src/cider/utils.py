@@ -389,14 +389,14 @@ def generate_synthetic_shapefile(
 
 def generate_all_synthetic_data(
     num_data_points: int,
-    num_unqiue_antenna_ids: int,
+    num_unique_antenna_ids: int,
     random_seed: int = 42,
 ) -> dict[type[BaseModel], PandasDataFrame]:
     """
     Generate synthetic data for all schemas for testing purposes.
     Args:
         num_data_points: Number of synthetic data points to generate for each schema
-        num_unqiue_antenna_ids: Number of unique antenna IDs to use in the CDR data
+        num_unique_antenna_ids: Number of unique antenna IDs to use in the CDR data
         random_seed: Random seed for reproducibility
     Returns:
         Dictionary mapping schema names to Pandas DataFrames with synthetic data
@@ -412,7 +412,7 @@ def generate_all_synthetic_data(
     )
     synthetic_data[CallDataRecordData] = correct_generated_synthetic_cdr_data(
         synthetic_cdr_df,
-        num_unqiue_antenna_ids,
+        num_unique_antenna_ids,
         random_seed=random_seed,
     )
 
@@ -431,7 +431,7 @@ def generate_all_synthetic_data(
 
     # Generate synthetic Antenna data
     synthetic_data[AntennaData] = generate_antenna_data(
-        num_antennas=num_unqiue_antenna_ids, random_seed=random_seed
+        num_antennas=num_unique_antenna_ids, random_seed=random_seed
     )
 
     # Generate synthetic Recharge data
