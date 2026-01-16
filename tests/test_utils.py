@@ -82,7 +82,7 @@ def test_validate_dataframe(spark):
     ):
         validate_dataframe(spark_df, required_schema=CallDataRecordData)
 
-    # Test that validation fails for incorrect data p
+    # Test that validation fails for incorrect data points
     cdr_incorrect_data = CDR_DATA.copy()
     cdr_incorrect_data["transaction_type"][0] = "invalid_type"
     df_incorrect_data = pd.DataFrame(cdr_incorrect_data)
