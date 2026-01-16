@@ -391,7 +391,7 @@ def generate_all_synthetic_data(
     num_data_points: int,
     num_unqiue_antenna_ids: int,
     random_seed: int = 42,
-) -> dict[str, PandasDataFrame]:
+) -> dict[type[BaseModel], PandasDataFrame]:
     """
     Generate synthetic data for all schemas for testing purposes.
     Args:
@@ -410,7 +410,7 @@ def generate_all_synthetic_data(
         random_seed=random_seed,
         keep_optional_columns=True,
     )
-    synthetic_data["CallDataRecordData"] = correct_generated_synthetic_cdr_data(
+    synthetic_data[CallDataRecordData] = correct_generated_synthetic_cdr_data(
         synthetic_cdr_df,
         num_unqiue_antenna_ids,
         random_seed=random_seed,
@@ -423,19 +423,19 @@ def generate_all_synthetic_data(
         random_seed=random_seed,
         keep_optional_columns=True,
     )
-    synthetic_data["MobileMoneyTransactionData"] = (
+    synthetic_data[MobileMoneyTransactionData] = (
         correct_generated_synthetic_mobile_money_transaction_data(
             synthetic_mobile_money_df
         )
     )
 
     # Generate synthetic Antenna data
-    synthetic_data["AntennaData"] = generate_antenna_data(
+    synthetic_data[AntennaData] = generate_antenna_data(
         num_antennas=num_unqiue_antenna_ids, random_seed=random_seed
     )
 
     # Generate synthetic Recharge data
-    synthetic_data["RechargeData"] = generate_synthetic_data(
+    synthetic_data[RechargeData] = generate_synthetic_data(
         schema=RechargeData,
         num_data_points=num_data_points,
         random_seed=random_seed,
@@ -443,7 +443,7 @@ def generate_all_synthetic_data(
     )
 
     # Generate synthetic Mobile Data Usage data
-    synthetic_data["MobileDataUsageData"] = generate_synthetic_data(
+    synthetic_data[MobileDataUsageData] = generate_synthetic_data(
         schema=MobileDataUsageData,
         num_data_points=num_data_points,
         random_seed=random_seed,

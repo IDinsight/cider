@@ -25,6 +25,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pandas as pd
+from pydantic import BaseModel
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (
     col,
@@ -42,6 +44,7 @@ from pyspark.sql.functions import (
     row_number,
     sqrt,
 )
+from datetime import datetime
 from pyspark.sql.window import Window
 from .schemas import (
     DirectionOfTransactionEnum,
@@ -58,9 +61,19 @@ from .dependencies import (
     _get_agg_columns_by_cdr_time_and_transaction_type,
     _get_summary_stats_cols,
     _great_circle_distance,
+    get_outlier_days_from_cdr_data,
+    get_spammers_from_cdr_data,
+    filter_to_datetime,
 )
-from cider.schemas import TransactionScope
+from cider.schemas import (
+    TransactionScope,
+    CallDataRecordData,
+    MobileMoneyTransactionData,
+    MobileDataUsageData,
+    RechargeData,
+)
 from cider.utils import validate_dataframe
+from pandas import DataFrame as PandasDataFrame
 
 
 # CDR features
@@ -1340,4 +1353,60 @@ def get_recharge_amount_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     return summary_stats_df
 
 
-# Location features
+def preprocess_data(
+    data_dict: dict[type[BaseModel], PandasDataFrame],
+    filter_start_date: datetime,
+    filter_end_date: datetime,
+    spammer_threshold: float = 1.75,
+    outlier_day_z_score_threshold: float = 2.0,
+) -> SparkDataFrame:
+    """
+    Get full set of features per caller in the dataframe.
+
+    Args:
+        data_dict: Dictionary of dataframes with their corresponding schema types
+        filter_start_date: Start date for filtering data
+        filter_end_date: End date for filtering data
+        spammer_threshold: Threshold for number of calls for identifying spammers
+        outlier_day_z_score_threshold: z-score threshold for transactions, to identify days with unusual activity
+    Returns:
+        df: Dataframe with full set of features columns
+    """
+    preprocessed_data: dict[type[BaseModel], PandasDataFrame] = {}
+    spammers_list: list[str] = []
+
+    for schema in [
+        CallDataRecordData,
+        MobileDataUsageData,
+        MobileMoneyTransactionData,
+        RechargeData,
+    ]:
+        validate_dataframe(data_dict[schema], schema, check_data_points=False)
+
+        # Filter to datetime
+        filtered_df = filter_to_datetime(
+            data_dict[schema],
+            pd.to_datetime(filter_start_date),
+            pd.to_datetime(filter_end_date),
+        )
+
+        if schema == CallDataRecordData:
+            spammers_list = get_spammers_from_cdr_data(filtered_df, spammer_threshold)
+
+        # Remove spammers
+        filtered_no_spammers_df = filtered_df[
+            ~filtered_df["caller_id"].isin(spammers_list)
+        ]
+
+        # Remove outlier days
+        if schema == CallDataRecordData:
+            outlier_days = get_outlier_days_from_cdr_data(
+                filtered_no_spammers_df, outlier_day_z_score_threshold
+            )
+        filtered_no_outlier_days_df = filtered_no_spammers_df[
+            ~filtered_no_spammers_df.timestamp.dt.date.isin(outlier_days)
+        ]
+
+        preprocessed_data[schema] = filtered_no_outlier_days_df
+
+    return preprocessed_data
