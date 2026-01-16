@@ -228,7 +228,7 @@ def correct_generated_synthetic_cdr_data(
         cdr_df, required_schema=CallDataRecordData, check_data_points=True
     )
 
-    # Ensure that duraction for text data is zero
+    # Ensure that duration for text data is zero
     cdr_df.loc[cdr_df["transaction_type"] == "text", "duration"] = 0.0
 
     np.random.seed(random_seed)
