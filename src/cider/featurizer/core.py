@@ -44,6 +44,7 @@ from pyspark.sql.functions import (
     row_number,
     sqrt,
 )
+from functools import reduce
 from datetime import datetime
 from pyspark.sql.window import Window
 from .schemas import (
@@ -64,15 +65,21 @@ from .dependencies import (
     get_outlier_days_from_cdr_data,
     get_spammers_from_cdr_data,
     filter_to_datetime,
+    identify_daytime,
+    identify_weekend,
+    swap_caller_and_recipient,
+    identify_and_tag_conversations,
+    identify_mobile_money_transaction_direction,
 )
 from cider.schemas import (
+    AntennaData,
     TransactionScope,
     CallDataRecordData,
     MobileMoneyTransactionData,
     MobileDataUsageData,
     RechargeData,
 )
-from cider.utils import validate_dataframe
+from cider.utils import validate_dataframe, get_spark_session
 from pandas import DataFrame as PandasDataFrame
 
 
@@ -1361,7 +1368,7 @@ def preprocess_data(
     outlier_day_z_score_threshold: float = 2.0,
 ) -> SparkDataFrame:
     """
-    Get full set of features per caller in the dataframe.
+    Preprocess all data before featurizing
 
     Args:
         data_dict: Dictionary of dataframes with their corresponding schema types
@@ -1410,3 +1417,288 @@ def preprocess_data(
         preprocessed_data[schema] = filtered_no_outlier_days_df
 
     return preprocessed_data
+
+
+def featurize_cdr_data(
+    cdr_data: PandasDataFrame,
+    antenna_data: PandasDataFrame,
+    max_wait_for_convo_in_seconds: int = 3600,
+    pareto_threshold: float = 0.8,
+) -> PandasDataFrame:
+    """
+    Retrieve all features for CDR data
+
+    Args:
+        cdr_data: Call record data
+        antenna_data: Antenna data
+        max_wait_for_convo_in_seconds: Maximum wait time between calls/texts to be considered part of the same conversation
+        pareto_threshold: Threshold for Pareto principle calculations
+
+    Returns:
+        pandas dataframe containing the full set of features
+
+    """
+    # Validate dataframes
+    validate_dataframe(cdr_data, CallDataRecordData)
+    validate_dataframe(antenna_data, AntennaData)
+    assert "region" in antenna_data.columns, "Antenna data must contain 'region' column"
+
+    spark_session = get_spark_session()
+
+    # Prepare CDR data: identify daytime/weekend, tag conversations
+    spark_cdr = spark_session.createDataFrame(cdr_data)
+    spark_antennas = spark_session.createDataFrame(antenna_data).withColumnRenamed(
+        "antenna_id", "caller_antenna_id"
+    )
+
+    spark_cdr_with_daytime = identify_daytime(spark_cdr)
+    spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
+
+    # Swap caller and recipient to get recipient-centric view
+    spark_cdr_swapped_caller_recipient = swap_caller_and_recipient(
+        spark_cdr_with_weekend
+    )
+
+    # Identify and tag conversations
+    spark_cdr_tagged_conversations = identify_and_tag_conversations(
+        spark_cdr_swapped_caller_recipient, max_wait=max_wait_for_convo_in_seconds
+    )
+
+    # Featurize CDR data
+    spark_cdr_active_days = get_active_days(spark_cdr_tagged_conversations)
+    spark_cdr_number_of_contacts_per_caller = get_number_of_contacts_per_caller(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_call_duration_stats = get_call_duration_stats(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_nocturnal_interactions = get_percentage_of_nocturnal_interactions(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_percentage_of_initiated_interactions = (
+        get_percentage_of_initiated_conversations(spark_cdr_tagged_conversations)
+    )
+    spark_percentage_initiated_calls = get_percentage_of_initiated_calls(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_response_time_delay_stats = get_text_response_time_delay_stats(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_text_response_rate = get_text_response_rate(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_entropy_of_interactions = get_entropy_of_interactions_per_caller(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_outgoing_interactions_fraction = get_outgoing_interaction_fraction_stats(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_interaction_stats_per_caller = get_interaction_stats_per_caller(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_inter_event_time_stats = get_inter_event_time_stats(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_pareto_interaction_stats = get_pareto_principle_interaction_stats(
+        spark_cdr_tagged_conversations, pareto_threshold
+    )
+    spark_cdr_pareto_call_duration_stats = get_pareto_principle_call_duration_stats(
+        spark_cdr_tagged_conversations, pareto_threshold
+    )
+    spark_cdr_number_of_transactions = get_number_of_interactions_per_user(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_number_of_antennas = get_number_of_antennas(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_entropy_of_antennas = get_entropy_of_antennas_per_caller(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_radius_of_gyration = get_radius_of_gyration(
+        spark_cdr_tagged_conversations, spark_antennas
+    )
+    spark_cdr_pareto_antennas = get_pareto_principle_antennas(
+        spark_cdr_tagged_conversations, pareto_threshold
+    )
+    spark_cdr_home_antenna_interactions = (
+        get_average_num_of_interactions_from_home_antennas(
+            spark_cdr_tagged_conversations
+        )
+    )
+    spark_cdr_international_stats = get_international_interaction_statistics(
+        spark_cdr_tagged_conversations
+    )
+    spark_cdr_antenna_location_features = get_caller_counts_per_region(
+        spark_cdr_tagged_conversations, spark_antennas
+    )
+
+    # Merge all features into a single dataframe on caller_id
+    feature_dfs = [
+        spark_cdr_active_days,
+        spark_cdr_number_of_contacts_per_caller,
+        spark_cdr_call_duration_stats,
+        spark_cdr_nocturnal_interactions,
+        spark_cdr_percentage_of_initiated_interactions,
+        spark_percentage_initiated_calls,
+        spark_cdr_response_time_delay_stats,
+        spark_cdr_text_response_rate,
+        spark_cdr_entropy_of_interactions,
+        spark_cdr_outgoing_interactions_fraction,
+        spark_cdr_interaction_stats_per_caller,
+        spark_cdr_inter_event_time_stats,
+        spark_cdr_pareto_interaction_stats,
+        spark_cdr_pareto_call_duration_stats,
+        spark_cdr_number_of_transactions,
+        spark_cdr_number_of_antennas,
+        spark_cdr_entropy_of_antennas,
+        spark_cdr_radius_of_gyration,
+        spark_cdr_pareto_antennas,
+        spark_cdr_home_antenna_interactions,
+        spark_cdr_international_stats,
+        spark_cdr_antenna_location_features,
+    ]
+    spark_merged_df = reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"),
+        feature_dfs,
+    )
+
+    return spark_merged_df.toPandas()
+
+
+def featurize_mobile_data_usage_data(
+    mobile_data: PandasDataFrame,
+) -> PandasDataFrame:
+    """
+    Retrieve all features for mobile data usage
+
+    Args:
+        mobile_data: Mobile data usage records
+
+    Returns:
+        pandas dataframe containing the full set of features
+    """
+    # Validate dataframe
+    validate_dataframe(mobile_data, MobileDataUsageData)
+
+    spark_session = get_spark_session()
+    spark_mobile_data = spark_session.createDataFrame(mobile_data)
+
+    spark_mobile_data_stats = get_mobile_data_stats(spark_mobile_data)
+
+    return spark_mobile_data_stats.toPandas()
+
+
+def featurize_mobile_money_data(
+    mobile_money_data: PandasDataFrame,
+) -> PandasDataFrame:
+    """
+    Retrieve all features for mobile money data
+
+    Args:
+        mobile_money_data: Mobile money transaction records
+
+    Returns:
+        pandas dataframe containing the full set of features
+    """
+    # Validate dataframe
+    validate_dataframe(mobile_money_data, MobileMoneyTransactionData)
+
+    spark_session = get_spark_session()
+    spark_mobile_money_data = spark_session.createDataFrame(mobile_money_data)
+
+    spark_mobile_money_with_direction = identify_mobile_money_transaction_direction(
+        spark_mobile_money_data
+    )
+    spark_mobile_money_amount_stats = get_mobile_money_amount_stats(
+        spark_mobile_money_with_direction
+    )
+    spark_mobile_money_transaction_stats = get_mobile_money_transaction_stats(
+        spark_mobile_money_with_direction
+    )
+    spark_mobile_money_balance_stats = get_mobile_money_balance_stats(
+        spark_mobile_money_with_direction
+    )
+
+    # Merge all features into a single dataframe on primary_id
+    feature_dfs = [
+        spark_mobile_money_amount_stats,
+        spark_mobile_money_transaction_stats,
+        spark_mobile_money_balance_stats,
+    ]
+    spark_merged_df = reduce(
+        lambda df1, df2: df1.join(df2, on="primary_id", how="outer"),
+        feature_dfs,
+    )
+    spark_merged_df = spark_merged_df.withColumnRenamed("primary_id", "caller_id")
+
+    return spark_merged_df.toPandas()
+
+
+def featurize_recharge_data(
+    recharge_data: PandasDataFrame,
+) -> PandasDataFrame:
+    """
+    Retrieve all features for recharge data
+
+    Args:
+        recharge_data: Recharge records
+    Returns:
+        pandas dataframe containing the full set of features
+    """
+    # Validate dataframe
+    validate_dataframe(recharge_data, RechargeData)
+
+    spark_session = get_spark_session()
+    spark_recharge_data = spark_session.createDataFrame(recharge_data)
+
+    spark_recharge_amount_stats = get_recharge_amount_stats(spark_recharge_data)
+
+    return spark_recharge_amount_stats.toPandas()
+
+
+def featurize_all_data(
+    preprocessed_data: dict[type[BaseModel], PandasDataFrame],
+    max_wait_for_convo_in_seconds: int = 3600,
+    pareto_threshold: float = 0.8,
+) -> PandasDataFrame:
+    """
+    Featurize all preprocessed data
+
+    Args:
+        preprocessed_data: Dictionary of preprocessed dataframes with their corresponding schema types
+        max_wait_for_convo_in_seconds: Maximum wait time between calls/texts to be considered part of the same conversation
+        pareto_threshold: Threshold for Pareto principle calculations
+
+    Returns:
+        pandas dataframe containing the full set of features
+    """
+    cdr_features_df = featurize_cdr_data(
+        preprocessed_data[CallDataRecordData],
+        preprocessed_data[AntennaData],
+        max_wait_for_convo_in_seconds,
+        pareto_threshold,
+    )
+
+    mobile_data_features_df = featurize_mobile_data_usage_data(
+        preprocessed_data[MobileDataUsageData]
+    )
+
+    mobile_money_features_df = featurize_mobile_money_data(
+        preprocessed_data[MobileMoneyTransactionData]
+    )
+
+    recharge_features_df = featurize_recharge_data(preprocessed_data[RechargeData])
+
+    # Merge all features into a single dataframe on caller_id
+    feature_dfs = [
+        cdr_features_df,
+        mobile_data_features_df,
+        mobile_money_features_df,
+        recharge_features_df,
+    ]
+    merged_df = reduce(
+        lambda df1, df2: pd.merge(df1, df2, on="caller_id", how="inner"),
+        feature_dfs,
+    )
+
+    return merged_df

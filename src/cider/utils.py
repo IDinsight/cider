@@ -381,7 +381,7 @@ def generate_synthetic_shapefile(
                 num_regions_found += 1
 
     regions_gdf = gpd.GeoDataFrame(
-        {"region_name": regions["region"], "geometry": regions["geometry"]},
+        {"region": regions["region"], "geometry": regions["geometry"]},
         crs="EPSG:4326",
     )
     return regions_gdf
