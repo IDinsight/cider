@@ -418,10 +418,10 @@ def generate_all_synthetic_data(
         Dictionary mapping schema names to Pandas DataFrames with synthetic data
     """
     synthetic_data = {}
-    logging = setup_logger(__name__)
+    logger = setup_logger(__name__)
 
     # Generate synthetic CDR data
-    logging.info("Generating synthetic call data record data")
+    logger.info("Generating synthetic call data record data")
     synthetic_cdr_df = generate_synthetic_data(
         schema=CallDataRecordData,
         num_data_points=num_data_points,
@@ -429,7 +429,7 @@ def generate_all_synthetic_data(
         keep_optional_columns=True,
     )
 
-    logging.info("Correcting synthetic call data record data")
+    logger.info("Correcting synthetic call data record data")
     synthetic_data[CallDataRecordData] = correct_generated_synthetic_cdr_data(
         synthetic_cdr_df,
         num_unique_antenna_ids,
@@ -437,7 +437,7 @@ def generate_all_synthetic_data(
     )
 
     # Generate synthetic Mobile Money Transaction data
-    logging.info("Generating synthetic mobile money transaction data")
+    logger.info("Generating synthetic mobile money transaction data")
     synthetic_mobile_money_df = generate_synthetic_data(
         schema=MobileMoneyTransactionData,
         num_data_points=num_data_points,
@@ -445,7 +445,7 @@ def generate_all_synthetic_data(
         keep_optional_columns=True,
     )
 
-    logging.info("Correcting synthetic mobile money transaction data")
+    logger.info("Correcting synthetic mobile money transaction data")
     synthetic_data[MobileMoneyTransactionData] = (
         correct_generated_synthetic_mobile_money_transaction_data(
             synthetic_mobile_money_df
@@ -453,13 +453,13 @@ def generate_all_synthetic_data(
     )
 
     # Generate synthetic Antenna data
-    logging.info("Generating synthetic antenna data")
+    logger.info("Generating synthetic antenna data")
     synthetic_data[AntennaData] = generate_antenna_data(
         num_antennas=num_unique_antenna_ids, random_seed=random_seed
     )
 
     # Generate synthetic Recharge data
-    logging.info("Generating synthetic recharge data")
+    logger.info("Generating synthetic recharge data")
     synthetic_data[RechargeData] = generate_synthetic_data(
         schema=RechargeData,
         num_data_points=num_data_points,
@@ -468,7 +468,7 @@ def generate_all_synthetic_data(
     )
 
     # Generate synthetic Mobile Data Usage data
-    logging.info("Generating synthetic mobile data usage data")
+    logger.info("Generating synthetic mobile data usage data")
     synthetic_data[MobileDataUsageData] = generate_synthetic_data(
         schema=MobileDataUsageData,
         num_data_points=num_data_points,
