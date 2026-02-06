@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from pyspark.sql import DataFrame as SparkDataFrame
 
@@ -46,7 +46,7 @@ from pyspark.sql.functions import (
     mean as pys_mean,
     min as pys_min,
     max as pys_max,
-    stddev_pop,
+    stddev_pop as stddev,
     expr,
     skewness,
     kurtosis,
@@ -89,7 +89,7 @@ def _get_summary_stats_cols(
         StatsComputationMethodEnum.MEAN: pys_mean,
         StatsComputationMethodEnum.MIN: pys_min,
         StatsComputationMethodEnum.MAX: pys_max,
-        StatsComputationMethodEnum.STD: stddev_pop,
+        StatsComputationMethodEnum.STD: stddev,
         StatsComputationMethodEnum.MEDIAN: expr(f"percentile_approx({col_name}, 0.5)"),
         StatsComputationMethodEnum.SKEWNESS: skewness,
         StatsComputationMethodEnum.KURTOSIS: kurtosis,
@@ -170,7 +170,7 @@ def _get_agg_columns_by_cdr_time_and_transaction_type(
         agg_name += f"{col_name}"
 
         aggs.append(
-            agg_func(when(condition, col(col_name)).otherwise(0)).alias(agg_name)
+            agg_func(when(condition, col(col_name)).otherwise(0.0)).alias(agg_name)
         )
     return aggs
 
@@ -193,13 +193,13 @@ def _great_circle_distance(spark_df: SparkDataFrame) -> SparkDataFrame:
     spark_df = (
         spark_df.withColumn(
             "delta_latitude",
-            radians(col("sum_latitude") - col("center_of_mass_latitude")),
+            radians(col("latitude") - col("center_of_mass_latitude")),
         )
         .withColumn(
             "delta_longitude",
-            radians(col("sum_longitude") - col("center_of_mass_longitude")),
+            radians(col("longitude") - col("center_of_mass_longitude")),
         )
-        .withColumn("latitude1", radians(col("sum_latitude")))
+        .withColumn("latitude1", radians(col("latitude")))
         .withColumn("latitude2", radians(col("center_of_mass_latitude")))
         .withColumn(
             "azimuth",
@@ -234,7 +234,8 @@ def filter_to_datetime(
     # Filter by date range
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df[
-        (df["timestamp"] >= filter_start_date) & (df["timestamp"] <= filter_end_date)
+        (df["timestamp"] >= filter_start_date)
+        & (df["timestamp"] < filter_end_date + timedelta(days=1))
     ]
     return df
 
@@ -276,7 +277,7 @@ def get_spammers_from_cdr_data(
 
     # Filter out callers with avg calls per day greater than threshold
     spammer_df = grouped_cdr_data.loc[
-        grouped_cdr_data["avg_calls_per_day"] >= threshold_of_calls_per_day
+        grouped_cdr_data["avg_calls_per_day"] > threshold_of_calls_per_day
     ]
 
     return spammer_df.caller_id.unique().tolist()
@@ -305,41 +306,21 @@ def get_outlier_days_from_cdr_data(
     cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
 
     # Group data by caller_id and day to get daily transaction counts
-    daily_counts = cdr_data.groupby(["day", "transaction_type"], as_index=False).apply(
-        lambda x: x.shape[0],
-        include_groups=False,
-    )
-    daily_counts = daily_counts.rename(columns={None: "daily_count"})
+    daily_counts = cdr_data.groupby(["day", "transaction_type"], as_index=False).size()
+    daily_counts = daily_counts.rename(columns={"size": "daily_count"})
 
-    per_transaction_mean = daily_counts.groupby(
-        "transaction_type", as_index=False
-    ).daily_count.mean()
-    per_transaction_std = daily_counts.groupby(
-        "transaction_type", as_index=False
-    ).daily_count.std()
+    # Combine all transaction types to compute overall mean and std
+    daily_counts_all_types = daily_counts.groupby("day", as_index=False).agg("sum")
 
-    bottom_thresholds = per_transaction_mean.copy()
-    top_thresholds = per_transaction_mean.copy()
-
-    bottom_thresholds.daily_count = per_transaction_mean.daily_count - (
-        zscore_threshold * per_transaction_std.daily_count
-    )
-    top_thresholds.daily_count = per_transaction_mean.daily_count + (
-        zscore_threshold * per_transaction_std.daily_count
-    )
-
-    # Map thresholds to each row's transaction_type
-    daily_counts["bottom_threshold"] = daily_counts["transaction_type"].map(
-        bottom_thresholds.set_index("transaction_type")["daily_count"]
-    )
-    daily_counts["top_threshold"] = daily_counts["transaction_type"].map(
-        top_thresholds.set_index("transaction_type")["daily_count"]
-    )
+    overall_mean = daily_counts_all_types["daily_count"].mean()
+    overall_std = daily_counts_all_types["daily_count"].std()
+    overall_bottom_threshold = overall_mean - (zscore_threshold * overall_std)
+    overall_top_threshold = overall_mean + (zscore_threshold * overall_std)
 
     # Get outlier days
-    outlier_days = daily_counts[
-        (daily_counts["daily_count"] < daily_counts["bottom_threshold"])
-        | (daily_counts["daily_count"] > daily_counts["top_threshold"])
+    outlier_days = daily_counts_all_types[
+        (daily_counts_all_types["daily_count"] < overall_bottom_threshold)
+        | (daily_counts_all_types["daily_count"] > overall_top_threshold)
     ]["day"]
 
     return outlier_days.unique().tolist()
@@ -358,12 +339,12 @@ def get_static_diagnostic_statistics(df: pd.DataFrame) -> DataDiagnosticStatisti
         raise ValueError("Dataframe must contain 'caller_id' and 'timestamp' columns")
 
     statistics = {
-        "total_transactions": df.shape[0],
+        "total_transactions": int(df.count()["caller_id"]),
         "num_unique_callers": df["caller_id"].nunique(),
         "num_unique_recipients": (
             df["recipient_id"].nunique() if "recipient_id" in df.columns else 0
         ),
-        "num_days": df["timestamp"].dt.date.nunique(),
+        "num_days": (df["timestamp"].max() - df["timestamp"].min()).days + 1,
     }
     return DataDiagnosticStatistics.model_validate(statistics)
 
@@ -445,7 +426,7 @@ def identify_weekend(
 
     spark_df = spark_df.withColumn(
         "is_weekend",
-        when((dayofweek(col("timestamp"))).isin(weekend_days), 1).otherwise(0),
+        when((dayofweek(col("day"))).isin(weekend_days), 1).otherwise(0),
     )
     return spark_df
 
@@ -523,9 +504,7 @@ def identify_and_tag_conversations(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordData)
 
-    window = Window.partitionBy("caller_id", "recipient_id").orderBy(
-        "timestamp", "transaction_type"
-    )
+    window = Window.partitionBy("caller_id", "recipient_id").orderBy("timestamp")
 
     spark_df = (
         spark_df.withColumn(
@@ -572,9 +551,7 @@ def identify_and_tag_conversations(
         # Also convert timestamp back if needed
         .withColumn("timestamp", col("timestamp").cast("timestamp"))
         # Drop intermediate columns
-        .drop(
-            "prev_transaction_type", "prev_timestamp", "time_lapse", "conversation_last"
-        )
+        .drop("prev_transaction_type", "prev_timestamp", "conversation_last")
     )
     return spark_df
 

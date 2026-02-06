@@ -228,12 +228,13 @@ def percent_initiated_conversations(df: SparkDataFrame) -> SparkDataFrame:
 
     df = add_all_cat(df, cols="week_day")
 
-    out = (
-        df.where(col("conversation") == col("timestamp").cast("long"))
-        .withColumn("initiated", F.when(col("direction") == "out", 1).otherwise(0))
-        .groupby("caller_id", "weekday", "daytime")
-        .agg(F.mean("initiated").alias("percent_initiated_conversations"))
+    out = df.where(
+        col("conversation").cast("long") == col("timestamp").cast("long")
+    ).withColumn("initiated", F.when(col("direction") == "out", 1).otherwise(0))
+    out = out.groupby("caller_id", "weekday", "daytime").agg(
+        F.mean("initiated").alias("percent_initiated_conversations")
     )
+
     out = pivot_df(
         out,
         index=["caller_id"],
@@ -313,10 +314,7 @@ def response_rate_text(df: SparkDataFrame) -> SparkDataFrame:
     out = (
         df.withColumn("dir", F.when(col("direction") == "out", 1).otherwise(0))
         .withColumn("responded", F.max(col("dir")).over(w))
-        .where(
-            (col("conversation") == col("timestamp").cast("long"))
-            & (col("direction") == "in")
-        )
+        .where((col("conversation") == col("timestamp")) & (col("direction") == "in"))
         .groupby("caller_id", "weekday", "daytime")
         .agg(F.mean("responded").alias("response_rate_text"))
     )

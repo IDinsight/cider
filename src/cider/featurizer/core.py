@@ -26,6 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pandas as pd
+import numpy as np
 from pydantic import BaseModel
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (
@@ -164,9 +165,62 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
             AllowedPivotColumnsEnum.IS_DAYTIME,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=first,
+        agg_func=pys_sum,
     )
     pivoted_df = spark_df_unique_contacts.groupby("caller_id").agg(*aggs)
+
+    # Count distinct contacts per caller, disaggregated by type only
+    spark_df_unique_contacts_type_only = spark_df.groupby(
+        "caller_id", "transaction_type"
+    ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
+    aggs_type_only = _get_agg_columns_by_cdr_time_and_transaction_type(
+        "num_unique_contacts",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df_type_only = spark_df_unique_contacts_type_only.groupby("caller_id").agg(
+        *aggs_type_only
+    )
+
+    # Count distinct contacts per caller, disaggregated by transaction type and weekday/end only
+    spark_df_unique_contacts_week_only = spark_df.groupby(
+        "caller_id", "is_weekend", "transaction_type"
+    ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
+    aggs_time_only = _get_agg_columns_by_cdr_time_and_transaction_type(
+        "num_unique_contacts",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df_week_only = spark_df_unique_contacts_week_only.groupby("caller_id").agg(
+        *aggs_time_only
+    )
+
+    # Count distinct contacts per caller, disaggregated by weekday/end and transaction type only
+    spark_df_unique_contacts_day_only = spark_df.groupby(
+        "caller_id", "is_daytime", "transaction_type"
+    ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
+    aggs_day_only = _get_agg_columns_by_cdr_time_and_transaction_type(
+        "num_unique_contacts",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df_day_only = spark_df_unique_contacts_day_only.groupby("caller_id").agg(
+        *aggs_day_only
+    )
+
+    # Merge all pivoted dataframes
+    pivoted_df = reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"),
+        [pivoted_df, pivoted_df_type_only, pivoted_df_week_only, pivoted_df_day_only],
+    )
 
     return pivoted_df
 
@@ -188,26 +242,79 @@ def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
 
     filtered_df = spark_df.filter(col("transaction_type") == "call")
 
-    summary_stats_cols = _get_summary_stats_cols("duration")
-    stats_df = filtered_df.groupby(
-        "caller_id", "is_weekend", "is_daytime", "transaction_type"
-    ).agg(*summary_stats_cols)
-
-    all_stats_aggs = []
-    for stats_col in [e.value for e in StatsComputationMethodEnum]:
-        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-            f"{stats_col}_duration",
-            cols_to_use_for_pivot=[
-                AllowedPivotColumnsEnum.IS_WEEKEND,
-                AllowedPivotColumnsEnum.IS_DAYTIME,
-            ],
-            agg_func=first,
+    def _groupby_and_pivot_cols(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        stats_comp_method: StatsComputationMethodEnum,
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        stats_df = filtered_df.groupby(*groupby_cols).agg(
+            *_get_summary_stats_cols("duration", [stats_comp_method])
         )
-        all_stats_aggs.extend(aggs)
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                f"{stats_comp_method.value}_duration",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = stats_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = stats_df
 
-    pivoted_df = stats_df.groupby("caller_id").agg(*all_stats_aggs)
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
 
-    return pivoted_df
+    base_groupby_cols = ["caller_id"]
+    base_pivot_cols: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+
+    for selection in meshgrid_for_dimensions:
+        if selection.sum() == 0:
+            groupby_cols = base_groupby_cols
+            pivot_cols_to_use = base_pivot_cols
+            drop_cols_to_use = []
+        else:
+            groupby_cols = base_groupby_cols + [
+                dim for dim, selected in zip(dimensions.keys(), selection) if selected
+            ]
+            pivot_cols_to_use = base_pivot_cols + [
+                pivot_cols[dim]
+                for dim, selected in zip(dimensions.keys(), selection)
+                if selected
+            ]
+            drop_cols_to_use = [
+                drop_cols[dim]
+                for dim, selected in zip(dimensions.keys(), selection)
+                if not selected
+            ]
+        for summary_stat in StatsComputationMethodEnum:
+            pivoted_df = _groupby_and_pivot_cols(
+                groupby_cols,
+                pivot_cols_to_use,
+                summary_stat,
+                drop_cols=drop_cols_to_use,
+            )
+            dfs_to_join.append(pivoted_df)
+
+    return reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"), dfs_to_join
+    )
 
 
 def get_percentage_of_nocturnal_interactions(
@@ -227,29 +334,42 @@ def get_percentage_of_nocturnal_interactions(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    count_df = spark_df.groupby("caller_id").agg(
-        count("*").alias("total_interactions"),
-        pys_sum(when(col("is_daytime") == 0, 1).otherwise(0)).alias(
-            "nocturnal_interactions"
-        ),
+    count_df = (
+        spark_df.withColumn(
+            "is_nocturnal", when(col("is_daytime") == 0, 1).otherwise(0)
+        )
+        .groupby("caller_id", "is_weekend", "transaction_type")
+        .agg(pys_mean("is_nocturnal").alias("percentage_nocturnal_interactions"))
     )
-    count_df = count_df.withColumn(
-        "percentage_nocturnal_interactions",
-        (col("nocturnal_interactions") / col("total_interactions")) * 100,
-    ).select("caller_id", "percentage_nocturnal_interactions")
 
-    count_df = spark_df.join(count_df, on="caller_id", how="inner")
     aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "percentage_nocturnal_interactions",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=first,
+        agg_func=pys_sum,
     )
     pivoted_df = count_df.groupby("caller_id").agg(*aggs)
 
-    return pivoted_df
+    count_df_all = (
+        spark_df.withColumn(
+            "is_nocturnal", when(col("is_daytime") == 0, 1).otherwise(0)
+        )
+        .groupby("caller_id", "transaction_type")
+        .agg(pys_mean("is_nocturnal").alias("percentage_nocturnal_interactions"))
+    )
+    aggs_all_week = _get_agg_columns_by_cdr_time_and_transaction_type(
+        "percentage_nocturnal_interactions",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df_all_week = (
+        count_df_all.groupby("caller_id").agg(*aggs_all_week).drop("is_weekend")
+    )
+    return pivoted_df.join(pivoted_df_all_week, on="caller_id", how="inner")
 
 
 def get_percentage_of_initiated_conversations(
@@ -269,32 +389,66 @@ def get_percentage_of_initiated_conversations(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    # TODO: this calculation is copied from deprecated.helpers.features.precent_initiated_conversations
-    # but it seems to calculate the average number of initiated conversations per daytime / weekend convo
-    # rather than the percentage. Keeping as is, but needs to be verified.
-    convo_df = (
-        spark_df.where(col("conversation") == col("timestamp"))
-        .withColumn(
-            "initiated_conversation",
-            when(col("direction_of_transaction") == "outgoing", 1).otherwise(0),
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(
+    convo_df = spark_df.where(
+        (col("conversation").isNotNull()) & (col("transaction_type") == "text")
+    ).withColumn(
+        "initiated_conversation",
+        when(col("direction_of_transaction") == "outgoing", 1).otherwise(0),
+    )
+
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        convo_df_grouped = convo_df.groupby(*groupby_cols).agg(
             pys_mean("initiated_conversation").alias(
                 "percentage_initiated_conversations"
             )
         )
-    )
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "percentage_initiated_conversations",
-        cols_to_use_for_pivot=[
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "percentage_initiated_conversations",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        convo_df_grouped = convo_df_grouped.groupby("caller_id").agg(*aggs)
+        if drop_cols:
+            convo_df_grouped = convo_df_grouped.drop(*drop_cols)
+        return convo_df_grouped
+
+    pivot_df = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "is_daytime"],
+        [
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
         ],
-        agg_func=first,
+    )
+    pivot_df_all_week = _get_groupby_and_pivot_df(
+        ["caller_id", "is_daytime"],
+        [
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+    )
+    pivot_df_all_day = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend"],
+        [
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+        ],
     )
 
-    return convo_df.groupby("caller_id").agg(*aggs)
+    return (
+        pivot_df.join(pivot_df_all_week, on="caller_id", how="inner")
+        .join(pivot_df_all_day, on="caller_id", how="inner")
+        .join(
+            convo_df.groupby("caller_id").agg(
+                pys_mean("initiated_conversation").alias(
+                    "percentage_initiated_conversations"
+                )
+            ),
+            on="caller_id",
+            how="inner",
+        )
+    )
 
 
 def get_percentage_of_initiated_calls(
@@ -316,28 +470,55 @@ def get_percentage_of_initiated_calls(
 
     spark_df_filtered = spark_df.where(col("transaction_type") == "call")
 
-    # TODO: this calculation is copied from deprecated.helpers.features.percent_initiated_calls
-    # but it seems to calculate the average number of initiated calls per daytime / weekend call
-    # rather than the percentage. Keeping as is, but needs to be verified.
-    interaction_df = (
-        spark_df_filtered.withColumn(
-            "initiated_call",
-            when(col("direction_of_transaction") == "outgoing", 1).otherwise(0),
+    filtered_df = spark_df_filtered.withColumn(
+        "initiated_call",
+        when(col("direction_of_transaction") == "outgoing", 1).otherwise(0),
+    )
+
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        interaction_df = filtered_df.groupby(*groupby_cols).agg(
+            pys_mean("initiated_call").alias("percentage_initiated_calls")
         )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(pys_mean("initiated_call").alias("percentage_initiated_calls"))
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "percentage_initiated_calls",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        interaction_df = interaction_df.groupby("caller_id").agg(*aggs)
+        if drop_cols:
+            interaction_df = interaction_df.drop(*drop_cols)
+        return interaction_df
+
+    interaction_df = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "is_daytime"],
+        [AllowedPivotColumnsEnum.IS_WEEKEND, AllowedPivotColumnsEnum.IS_DAYTIME],
+    )
+    interaction_df_all_week = _get_groupby_and_pivot_df(
+        ["caller_id", "is_daytime"],
+        [AllowedPivotColumnsEnum.IS_DAYTIME],
+        ["is_weekend"],
+    )
+    interaction_df_all_day = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend"],
+        [AllowedPivotColumnsEnum.IS_WEEKEND],
+        ["is_daytime"],
     )
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "percentage_initiated_calls",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
+    return (
+        interaction_df.join(interaction_df_all_week, on="caller_id", how="inner")
+        .join(interaction_df_all_day, on="caller_id", how="inner")
+        .join(
+            filtered_df.groupby("caller_id").agg(
+                pys_mean("initiated_call").alias("percentage_initiated_calls")
+            ),
+            on="caller_id",
+            how="inner",
+        )
     )
-
-    return interaction_df.groupby("caller_id").agg(*aggs)
 
 
 def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -363,7 +544,6 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
     )
 
     # Calculate time difference between consecutive texts
-    summary_stats_cols = _get_summary_stats_cols("response_time_delay")
     response_time_df = (
         filtered_df.withColumn(
             "prev_direction", lag(col("direction_of_transaction")).over(window)
@@ -377,25 +557,86 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
                 col("timestamp").cast("long") - col("prev_timestamp").cast("long"),
             ),
         )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(*summary_stats_cols)
     )
 
-    all_aggs = []
-    for pivot_col in [e.value for e in StatsComputationMethodEnum]:
-        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-            f"{pivot_col}_response_time_delay",
-            cols_to_use_for_pivot=[
-                AllowedPivotColumnsEnum.IS_WEEKEND,
-                AllowedPivotColumnsEnum.IS_DAYTIME,
-            ],
-            agg_func=first,
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        stat_comp_method: StatsComputationMethodEnum,
+        drop_cols: list[str] = [],
+    ):
+        summary_stats_col = _get_summary_stats_cols(
+            "response_time_delay", [stat_comp_method]
         )
-        all_aggs.extend(aggs)
+        stats_df = response_time_df.groupby(*groupby_cols).agg(*summary_stats_col)
 
-    stats_df = response_time_df.groupby("caller_id").agg(*all_aggs)
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                f"{stat_comp_method.value}_response_time_delay",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = stats_df.groupby("caller_id").agg(*aggs)
 
-    return stats_df
+        else:
+            pivoted_df = stats_df
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
+
+    base_groupby_cols = ["caller_id"]
+    base_pivot_cols: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+    for stats_col in StatsComputationMethodEnum:
+        for selection in meshgrid_for_dimensions:
+            if selection.sum() == 0:
+                groupby_cols = base_groupby_cols
+                pivot_cols_to_use = base_pivot_cols
+                drop_cols_to_use = []
+            else:
+                groupby_cols = base_groupby_cols + [
+                    dim
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                pivot_cols_to_use = base_pivot_cols + [
+                    pivot_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                drop_cols_to_use = [
+                    drop_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if not selected
+                ]
+
+            pivoted_df = _get_groupby_and_pivot_df(
+                groupby_cols,
+                pivot_cols_to_use,
+                stats_col,
+                drop_cols=drop_cols_to_use,
+            )
+            dfs_to_join.append(pivoted_df)
+
+    return reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"), dfs_to_join
+    )
 
 
 def get_text_response_rate(
@@ -421,7 +662,7 @@ def get_text_response_rate(
     window = Window.partitionBy("caller_id", "recipient_id", "conversation")
 
     # Calculate response rate
-    response_rate_df = (
+    response_df = (
         filtered_df.withColumn(
             "direction",
             when((col("direction_of_transaction") == "outgoing"), 1).otherwise(0),
@@ -431,22 +672,56 @@ def get_text_response_rate(
             (col("conversation") == col("timestamp"))
             & (col("direction_of_transaction") == "incoming")
         )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(pys_mean("responded").alias("text_response_rate"))
     )
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "text_response_rate",
-        cols_to_use_for_pivot=[
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        df = response_df.groupby(*groupby_cols).agg(
+            pys_mean("responded").alias("text_response_rate")
+        )
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "text_response_rate",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        out_df = df.groupby("caller_id").agg(*aggs)
+        if drop_cols:
+            out_df = out_df.drop(*drop_cols)
+        return out_df
+
+    response_rate_df = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "is_daytime"],
+        [
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
         ],
-        agg_func=first,
     )
 
-    stats_df = response_rate_df.groupby("caller_id").agg(*aggs)
+    response_rate_df_all_week = _get_groupby_and_pivot_df(
+        ["caller_id", "is_daytime"],
+        [AllowedPivotColumnsEnum.IS_DAYTIME],
+        ["is_weekend"],
+    )
+    response_rate_df_all_day = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend"],
+        [AllowedPivotColumnsEnum.IS_WEEKEND],
+        ["is_daytime"],
+    )
 
-    return stats_df
+    return (
+        response_rate_df.join(response_rate_df_all_week, on="caller_id", how="inner")
+        .join(response_rate_df_all_day, on="caller_id", how="inner")
+        .join(
+            response_df.groupby("caller_id").agg(
+                pys_mean("responded").alias("text_response_rate")
+            ),
+            on="caller_id",
+            how="inner",
+        )
+    )
 
 
 def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -464,37 +739,72 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    window = Window.partitionBy(
-        "caller_id", "is_weekend", "is_daytime", "transaction_type"
-    )
-    entropy_df = (
-        spark_df.groupby(
-            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
-        )
-        .agg(count(lit(0)).alias("interaction_count"))
-        .withColumn("total_count", pys_sum("interaction_count").over(window))
-        .withColumn(
-            "probability", (col("interaction_count") / col("total_count").cast("float"))
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
-        .agg(
-            (-1 * pys_sum(col("probability") * pys_log(col("probability")))).alias(
-                "entropy_of_interactions"
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        window = Window.partitionBy(groupby_cols)
+        entropy_df = (
+            spark_df.groupby("recipient_id", *groupby_cols)
+            .agg(count(lit(0)).alias("interaction_count"))
+            .withColumn("total_count", pys_sum("interaction_count").over(window))
+            .withColumn(
+                "probability",
+                (col("interaction_count") / col("total_count").cast("float")),
+            )
+            .groupby(groupby_cols)
+            .agg(
+                (-1 * pys_sum(col("probability") * pys_log(col("probability")))).alias(
+                    "entropy_of_interactions"
+                )
             )
         )
-    )
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "entropy_of_interactions",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        out_df = entropy_df.groupby("caller_id").agg(*aggs)
+        if drop_cols:
+            out_df = out_df.drop(*drop_cols)
+        return out_df
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "entropy_of_interactions",
-        cols_to_use_for_pivot=[
+    entropy_df = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "is_daytime", "transaction_type"],
+        [
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=first,
     )
-    pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    entropy_df_all_week = _get_groupby_and_pivot_df(
+        ["caller_id", "is_daytime", "transaction_type"],
+        [
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        # ["is_weekend"],
+    )
+    entropy_df_all_day = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "transaction_type"],
+        [
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        # ["is_daytime"],
+    )
+    entropy_df_all = _get_groupby_and_pivot_df(
+        ["caller_id", "transaction_type"],
+        [AllowedPivotColumnsEnum.TRANSACTION_TYPE],
+        # ["is_weekend", "is_daytime"],
+    )
+
+    return (
+        entropy_df.join(entropy_df_all_week, on="caller_id", how="inner")
+        .join(entropy_df_all_day, on="caller_id", how="inner")
+        .join(entropy_df_all, on="caller_id", how="inner")
+    )
 
 
 def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -512,68 +822,113 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    # Get interaction counts per caller-recipient pair
-    count_df = (
-        spark_df.groupby(
-            "caller_id",
-            "recipient_id",
-            "is_weekend",
-            "is_daytime",
-            "transaction_type",
-            "direction_of_transaction",
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        stat_comp_method: StatsComputationMethodEnum,
+        drop_cols: list[str] = [],
+    ):
+        # Get interaction counts per caller-recipient pair
+        count_df = (
+            spark_df.groupby("recipient_id", "direction_of_transaction", *groupby_cols)
+            .agg(count(lit(0)).alias("interaction_count"))
+            .groupby("recipient_id", *groupby_cols)
+            .pivot("direction_of_transaction")
+            .agg(pys_sum("interaction_count").alias("interaction_count"))
+            .fillna(0)
         )
-        .agg(count(lit(0)).alias("interaction_count"))
-        .groupby(
-            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
-        )
-        .pivot("direction_of_transaction")
-        .agg(first("interaction_count").alias("interaction_count"))
-        .fillna(0)
-    )
 
-    # Add columns for missing direction of transactions
-    missing_direction_cols = [
-        e.value for e in DirectionOfTransactionEnum if e.value not in count_df.columns
-    ]
-    for col_name in missing_direction_cols:
-        count_df = count_df.withColumn(col_name, lit(0))
+        # Add columns for missing direction of transactions
+        missing_direction_cols = [
+            e.value
+            for e in DirectionOfTransactionEnum
+            if e.value not in count_df.columns
+        ]
+        for col_name in missing_direction_cols:
+            count_df = count_df.withColumn(col_name, lit(0))
 
-    # Calculate outgoing call fraction and corresponding stats
-    summary_stats_cols = _get_summary_stats_cols("fraction_of_outgoing_calls")
-    fraction_df = (
-        count_df.withColumn(
+        # Calculate outgoing call fraction and corresponding stats
+        fraction_df = count_df.withColumn(
             "total_interactions",
             sum([col(e.value) for e in DirectionOfTransactionEnum]),
-        )
-        .withColumn(
+        ).withColumn(
             "fraction_of_outgoing_calls",
             col(DirectionOfTransactionEnum.OUTGOING.value)
             / col("total_interactions").cast("float"),
         )
-        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
-        .agg(*summary_stats_cols)
-    )
-
-    all_aggs = []
-    cols_to_pivot = [
-        f"{e.value}_fraction_of_outgoing_calls" for e in StatsComputationMethodEnum
-    ]
-
-    for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-            pivot_col,
-            cols_to_use_for_pivot=[
-                AllowedPivotColumnsEnum.IS_WEEKEND,
-                AllowedPivotColumnsEnum.IS_DAYTIME,
-                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
-            ],
-            agg_func=first,
+        summary_stats_col = _get_summary_stats_cols(
+            "fraction_of_outgoing_calls", [stat_comp_method]
         )
-        all_aggs.extend(aggs)
+        stats_df = fraction_df.groupby(*groupby_cols).agg(*summary_stats_col)
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                f"{stat_comp_method.value}_fraction_of_outgoing_calls",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = stats_df.groupby("caller_id").agg(*aggs)
 
-    stats_df = fraction_df.groupby("caller_id").agg(*all_aggs)
+        else:
+            pivoted_df = stats_df
 
-    return stats_df
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
+
+    base_cols = ["caller_id", "transaction_type"]
+    base_pivots: list[AllowedPivotColumnsEnum] = [
+        AllowedPivotColumnsEnum.TRANSACTION_TYPE
+    ]
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+    for stats_col in StatsComputationMethodEnum:
+        for selection in meshgrid_for_dimensions:
+            if selection.sum() == 0:
+                groupby_cols = base_cols
+                pivot_cols_to_use = base_pivots
+                drop_cols_to_use = []
+            else:
+                groupby_cols = base_cols + [
+                    dim
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                pivot_cols_to_use = base_pivots + [
+                    pivot_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                drop_cols_to_use = [
+                    drop_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if not selected
+                ]
+
+            pivoted_df = _get_groupby_and_pivot_df(
+                groupby_cols,
+                pivot_cols_to_use,
+                stats_col,
+                drop_cols=drop_cols_to_use,
+            )
+            dfs_to_join.append(pivoted_df)
+
+    return reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"), dfs_to_join
+    )
 
 
 def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -591,33 +946,90 @@ def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    summary_stats_cols = _get_summary_stats_cols("interaction_count")
-    interaction_df = (
-        spark_df.groupby(
-            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        stat_comp_method: StatsComputationMethodEnum,
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        summary_stats_col = _get_summary_stats_cols(
+            "interaction_count", [stat_comp_method]
         )
-        .agg(count(lit(0)).alias("interaction_count"))
-        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
-        .agg(*summary_stats_cols)
+        interaction_df = (
+            spark_df.groupby("recipient_id", *groupby_cols)
+            .agg(count(lit(0)).alias("interaction_count"))
+            .groupby(*groupby_cols)
+            .agg(*summary_stats_col)
+        )
+
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                f"{stat_comp_method.value}_interaction_count",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = interaction_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = interaction_df
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
+
+    base_cols = ["caller_id", "transaction_type"]
+    base_pivots: list[AllowedPivotColumnsEnum] = [
+        AllowedPivotColumnsEnum.TRANSACTION_TYPE
+    ]
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
+    dfs_to_join = []
+    for stats_col in StatsComputationMethodEnum:
+        for selection in meshgrid_for_dimensions:
+            if selection.sum() == 0:
+                groupby_cols = base_cols
+                pivot_cols_to_use = base_pivots
+                drop_cols_to_use = []
+            else:
+                groupby_cols = base_cols + [
+                    dim
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                pivot_cols_to_use = base_pivots + [
+                    pivot_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                drop_cols_to_use = [
+                    drop_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if not selected
+                ]
 
-    all_aggs = []
-    cols_to_pivot = [f"{e.value}_interaction_count" for e in StatsComputationMethodEnum]
-    for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-            pivot_col,
-            cols_to_use_for_pivot=[
-                AllowedPivotColumnsEnum.IS_WEEKEND,
-                AllowedPivotColumnsEnum.IS_DAYTIME,
-                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
-            ],
-            agg_func=first,
-        )
-        all_aggs.extend(aggs)
+            pivoted_df = _get_groupby_and_pivot_df(
+                groupby_cols,
+                pivot_cols_to_use,
+                stats_col,
+                drop_cols=drop_cols_to_use,
+            )
+            dfs_to_join.append(pivoted_df)
 
-    pivoted_df = interaction_df.groupby("caller_id").agg(*all_aggs)
-
-    return pivoted_df
+    return reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"), dfs_to_join
+    )
 
 
 def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -635,37 +1047,97 @@ def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    # Calculate inter-event times and corresponding summary stats
-    window = Window.partitionBy(
-        "caller_id", "is_weekend", "is_daytime", "transaction_type"
-    ).orderBy("timestamp")
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        stat_comp_method: StatsComputationMethodEnum,
+        drop_cols: list[str] = [],
+    ):
 
-    summary_stats_cols = _get_summary_stats_cols("inter_event_time")
-    inter_event_df = (
-        spark_df.withColumn("timestamp_long", col("timestamp").cast("long"))
-        .withColumn("prev_timestamp", lag(col("timestamp_long")).over(window))
-        .withColumn("inter_event_time", col("timestamp_long") - col("prev_timestamp"))
-        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
-        .agg(*summary_stats_cols)
-    )
+        # Calculate inter-event times and corresponding summary stats
+        window = Window.partitionBy(*groupby_cols).orderBy("timestamp")
 
-    # Pivot inter-event time stats
-    all_aggs = []
-    cols_to_pivot = [f"{e.value}_inter_event_time" for e in StatsComputationMethodEnum]
-    for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-            pivot_col,
-            cols_to_use_for_pivot=[
-                AllowedPivotColumnsEnum.IS_WEEKEND,
-                AllowedPivotColumnsEnum.IS_DAYTIME,
-                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
-            ],
-            agg_func=first,
+        summary_stats_cols = _get_summary_stats_cols(
+            "inter_event_time", [stat_comp_method]
         )
-        all_aggs.extend(aggs)
+        inter_event_df = (
+            spark_df.withColumn("timestamp_long", col("timestamp").cast("long"))
+            .withColumn("prev_timestamp", lag(col("timestamp_long")).over(window))
+            .withColumn(
+                "inter_event_time", col("timestamp_long") - col("prev_timestamp")
+            )
+            .groupby(*groupby_cols)
+            .agg(*summary_stats_cols)
+        )
 
-    pivoted_df = inter_event_df.groupby("caller_id").agg(*all_aggs)
-    return pivoted_df
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                f"{stat_comp_method.value}_inter_event_time",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = inter_event_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = inter_event_df
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+
+        return pivoted_df
+
+    base_cols = ["caller_id", "transaction_type"]
+    base_pivots: list[AllowedPivotColumnsEnum] = [
+        AllowedPivotColumnsEnum.TRANSACTION_TYPE
+    ]
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+    for stats_col in StatsComputationMethodEnum:
+        for selection in meshgrid_for_dimensions:
+            if selection.sum() == 0:
+                groupby_cols = base_cols
+                pivot_cols_to_use = base_pivots
+                drop_cols_to_use = []
+            else:
+                groupby_cols = base_cols + [
+                    dim
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                pivot_cols_to_use = base_pivots + [
+                    pivot_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                drop_cols_to_use = [
+                    drop_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if not selected
+                ]
+
+            pivoted_df = _get_groupby_and_pivot_df(
+                groupby_cols,
+                pivot_cols_to_use,
+                stats_col,
+                drop_cols=drop_cols_to_use,
+            )
+            dfs_to_join.append(pivoted_df)
+    return reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"), dfs_to_join
+    )
 
 
 def get_pareto_principle_interaction_stats(
@@ -689,61 +1161,116 @@ def get_pareto_principle_interaction_stats(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    # Set up windows for calculations
-    window_1 = Window.partitionBy(
-        "caller_id", "is_weekend", "is_daytime", "transaction_type"
-    )
-    window_2 = Window.partitionBy(
-        "caller_id", "is_weekend", "is_daytime", "transaction_type"
-    ).orderBy(col("interaction_count").desc())
-    window_3 = Window.partitionBy(
-        "caller_id", "is_weekend", "is_daytime", "transaction_type"
-    ).orderBy("row_number")
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        # Set up windows for calculations
+        window_1 = Window.partitionBy(*groupby_cols)
+        window_2 = Window.partitionBy(*groupby_cols).orderBy(
+            col("interaction_count").desc()
+        )
+        window_3 = Window.partitionBy(*groupby_cols).orderBy("row_number")
 
-    # Calculate Pareto principle interaction stats
-    pareto_interaction_df = (
-        spark_df.groupby(
-            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
+        # Calculate Pareto principle interaction stats
+        pareto_interaction_df = (
+            spark_df.groupby(*groupby_cols, "recipient_id")
+            .agg(count(lit(0)).alias("interaction_count"))
+            .withColumn(
+                "total_interactions", pys_sum("interaction_count").over(window_1)
+            )
+            .withColumn("row_number", row_number().over(window_2))
+            .withColumn(
+                "cumulative_interactions", pys_sum("interaction_count").over(window_3)
+            )
+            .withColumn(
+                "cumulative_interaction_fraction",
+                col("cumulative_interactions")
+                / col("total_interactions").cast("float"),
+            )
+            .withColumn(
+                "row_number",
+                when(
+                    col("cumulative_interaction_fraction") >= percentage_threshold,
+                    col("row_number"),
+                ),
+            )
+            .groupby(*groupby_cols)
+            .agg(
+                pys_min("row_number").alias("num_pareto_callers"),
+                countDistinct("recipient_id").alias("num_unique_recipients"),
+            )
+            .withColumn(
+                "pareto_principle_interaction_fraction",
+                col("num_pareto_callers") / col("num_unique_recipients").cast("float"),
+            )
         )
-        .agg(count(lit(0)).alias("interaction_count"))
-        .withColumn("total_interactions", pys_sum("interaction_count").over(window_1))
-        .withColumn("row_number", row_number().over(window_2))
-        .withColumn(
-            "cumulative_interactions", pys_sum("interaction_count").over(window_3)
-        )
-        .withColumn(
-            "cumulative_interaction_fraction",
-            col("cumulative_interactions") / col("total_interactions").cast("float"),
-        )
-        .withColumn(
-            "row_number",
-            when(
-                col("cumulative_interaction_fraction") >= percentage_threshold,
-                col("row_number"),
-            ),
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
-        .agg(
-            pys_min("row_number").alias("num_pareto_callers"),
-            countDistinct("recipient_id").alias("num_unique_recipients"),
-        )
-        .withColumn(
-            "pareto_principle_interaction_fraction",
-            col("num_pareto_callers") / col("num_unique_recipients").cast("float"),
-        )
-    )
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "pareto_principle_interaction_fraction",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
-        ],
-        agg_func=first,
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "pareto_principle_interaction_fraction",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = pareto_interaction_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = pareto_interaction_df
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
+
+    base_cols = ["caller_id", "transaction_type"]
+    base_pivots: list[AllowedPivotColumnsEnum] = [
+        AllowedPivotColumnsEnum.TRANSACTION_TYPE
+    ]
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = pareto_interaction_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    dfs_to_join = []
+    for selection in meshgrid_for_dimensions:
+        if selection.sum() == 0:
+            groupby_cols = base_cols
+            pivot_cols_to_use = base_pivots
+            drop_cols_to_use = []
+        else:
+            groupby_cols = base_cols + [
+                dim for dim, selected in zip(dimensions.keys(), selection) if selected
+            ]
+            pivot_cols_to_use = base_pivots + [
+                pivot_cols[dim]
+                for dim, selected in zip(dimensions.keys(), selection)
+                if selected
+            ]
+            drop_cols_to_use = [
+                drop_cols[dim]
+                for dim, selected in zip(dimensions.keys(), selection)
+                if not selected
+            ]
+
+        pivoted_df = _get_groupby_and_pivot_df(
+            groupby_cols,
+            pivot_cols_to_use,
+            drop_cols=drop_cols_to_use,
+        )
+        dfs_to_join.append(pivoted_df)
+
+    return reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"), dfs_to_join
+    )
 
 
 def get_pareto_principle_call_duration_stats(
@@ -770,59 +1297,115 @@ def get_pareto_principle_call_duration_stats(
     # Filter to only call transactions
     filtered_df = spark_df.filter(col("transaction_type") == "call")
 
-    # Set up windows for calculations
-    window_1 = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
-    window_2 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
-        col("total_call_duration").desc()
-    )
-    window_3 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
-        "row_number"
-    )
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        # Set up windows for calculations
+        window_1 = Window.partitionBy(*groupby_cols)
+        window_2 = Window.partitionBy(*groupby_cols).orderBy(
+            col("total_call_duration").desc()
+        )
+        window_3 = Window.partitionBy(*groupby_cols).orderBy("row_number")
 
-    # Calculate Pareto principle call duration stats
-    pareto_call_duration_df = (
-        filtered_df.groupby("caller_id", "recipient_id", "is_weekend", "is_daytime")
-        .agg(pys_sum("duration").alias("total_call_duration"))
-        .withColumn(
-            "overall_call_duration", pys_sum("total_call_duration").over(window_1)
-        )
-        .withColumn("row_number", row_number().over(window_2))
-        .withColumn(
-            "cumulative_call_duration", pys_sum("total_call_duration").over(window_3)
-        )
-        .withColumn(
-            "cumulative_call_fraction",
-            col("cumulative_call_duration")
-            / col("overall_call_duration").cast("float"),
-        )
-        .withColumn(
-            "row_number",
-            when(
-                col("cumulative_call_fraction") >= percentage_threshold,
-                col("row_number"),
-            ),
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(
-            pys_min("row_number").alias("num_pareto_callers"),
-            countDistinct("recipient_id").alias("num_unique_recipients"),
-        )
-        .withColumn(
-            "pareto_call_duration_fraction",
-            col("num_pareto_callers") / col("num_unique_recipients").cast("float"),
-        )
-    )
+        # Calculate Pareto principle call duration stats
+        pareto_call_duration_df = (
+            filtered_df.groupby("recipient_id", *groupby_cols)
+            .agg(pys_sum("duration").alias("total_call_duration"))
+            .withColumn(
+                "overall_call_duration", pys_sum("total_call_duration").over(window_1)
+            )
+            .withColumn("row_number", row_number().over(window_2))
+            .withColumn(
+                "cumulative_call_duration",
+                pys_sum("total_call_duration").over(window_3),
+            )
+            .withColumn(
+                "cumulative_call_fraction",
+                col("cumulative_call_duration")
+                / col("overall_call_duration").cast("float"),
+            )
+            .withColumn(
+                "row_number",
+                when(
+                    col("cumulative_call_fraction") >= percentage_threshold,
+                    col("row_number"),
+                ),
+            )
+            .groupby(*groupby_cols)
+            .agg(
+                pys_min("row_number").alias("num_pareto_callers"),
+                countDistinct("recipient_id").alias("num_unique_recipients"),
+            )
+            .withColumn(
+                "pareto_call_duration_fraction",
+                col("num_pareto_callers") / col("num_unique_recipients").cast("float"),
+            )
+        ).drop("num_pareto_callers", "num_unique_recipients")
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "pareto_call_duration_fraction",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "pareto_call_duration_fraction",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = pareto_call_duration_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = pareto_call_duration_df
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
+
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = pareto_call_duration_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    dfs_to_join = []
+    for selection in meshgrid_for_dimensions:
+        if selection.sum() == 0:
+            groupby_cols = base_cols
+            pivot_cols_to_use = base_pivots
+            drop_cols_to_use = []
+        else:
+            groupby_cols = base_cols + [
+                dim for dim, selected in zip(dimensions.keys(), selection) if selected
+            ]
+            pivot_cols_to_use = base_pivots + [
+                pivot_cols[dim]
+                for dim, selected in zip(dimensions.keys(), selection)
+                if selected
+            ]
+            drop_cols_to_use = [
+                drop_cols[dim]
+                for dim, selected in zip(dimensions.keys(), selection)
+                if not selected
+            ]
+
+        pivoted_df = _get_groupby_and_pivot_df(
+            groupby_cols,
+            pivot_cols_to_use,
+            drop_cols=drop_cols_to_use,
+        )
+        dfs_to_join.append(pivoted_df)
+
+    return reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"), dfs_to_join
+    )
 
 
 def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -840,41 +1423,98 @@ def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFr
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    count_df = spark_df.groupby(
-        "caller_id",
-        "is_weekend",
-        "is_daytime",
-        "transaction_type",
-        "direction_of_transaction",
-    ).agg(count(lit(0)).alias("num_interactions"))
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
 
-    pivoted_df = (
-        count_df.groupby("caller_id")
-        .pivot(
-            "direction_of_transaction", [e.value for e in DirectionOfTransactionEnum]
-        )
-        .agg(first("num_interactions"))
+        count_df = spark_df.groupby(
+            groupby_cols,
+        ).agg(count(lit(0)).alias("num_interactions"))
+
+        if "direction_of_transaction" in groupby_cols:
+            # Pivot by direction first
+            pivoted_df = (
+                count_df.groupby(
+                    [col for col in groupby_cols if col != "direction_of_transaction"]
+                )
+                .pivot(
+                    "direction_of_transaction",
+                    [e.value for e in DirectionOfTransactionEnum],
+                )
+                .agg(first("num_interactions"))
+            )
+
+            # Rename direction columns and aggregate
+            all_aggs = []
+            for e in DirectionOfTransactionEnum:
+                pivoted_df = pivoted_df.withColumnRenamed(
+                    e.value, f"{e.value}_num_interactions"
+                )
+                aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                    f"{e.value}_num_interactions",
+                    cols_to_use_for_pivot=pivot_cols,
+                    agg_func=pys_sum,
+                )
+                all_aggs.extend(aggs)
+
+            # Final aggregation by caller_id only
+            pivoted_df = pivoted_df.groupby("caller_id").agg(*all_aggs)
+        else:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "num_interactions",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = count_df.groupby("caller_id").agg(*aggs)
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+
+        return pivoted_df
+
+    base_cols = ["caller_id", "transaction_type"]
+    base_pivots = [AllowedPivotColumnsEnum.TRANSACTION_TYPE]
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+        "direction_of_transaction": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+        "direction_of_transaction": [],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+        "direction_of_transaction": [],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = pivoted_df.join(count_df, on="caller_id", how="inner")
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        for i, dim in enumerate(dimensions.keys()):
+            if setting[i]:
+                groupby_cols.append(dim)
+                cols_to_use_for_pivot.extend(pivot_cols[dim])
+                if drop_cols[dim]:
+                    cols_to_drop.extend(drop_cols[dim])
 
-    all_aggs = []
-    for e in DirectionOfTransactionEnum:
-        pivoted_df = pivoted_df.withColumnRenamed(
-            e.value, f"{e.value}_num_interactions"
+        df = _get_groupby_and_pivot_df(
+            groupby_cols,
+            cols_to_use_for_pivot,
+            cols_to_drop,
         )
-        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-            f"{e.value}_num_interactions",
-            cols_to_use_for_pivot=[
-                AllowedPivotColumnsEnum.IS_WEEKEND,
-                AllowedPivotColumnsEnum.IS_DAYTIME,
-                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
-            ],
-            agg_func=first,
-        )
-        all_aggs.extend(aggs)
-    pivoted_df = pivoted_df.groupby("caller_id").agg(*all_aggs)
-
-    return pivoted_df
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -892,21 +1532,71 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    antenna_df = spark_df.groupby("caller_id", "is_daytime", "is_weekend").agg(
-        countDistinct("caller_antenna_id").alias("num_unique_antennas")
-    )
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
+        antenna_df = spark_df.groupby(groupby_cols).agg(
+            countDistinct("caller_antenna_id").alias("num_unique_antennas")
+        )
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "num_unique_antennas",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
-    )
-    antenna_df = antenna_df.groupby("caller_id").agg(*aggs)
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "num_unique_antennas",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        pivoted_df = antenna_df.groupby("caller_id").agg(*aggs)
 
-    return antenna_df
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+
+        return pivoted_df
+
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        if setting.sum() == 0:
+            # If no dimensions are selected, we want to group by caller_id only and not pivot
+            df = spark_df.groupby("caller_id").agg(
+                countDistinct("caller_antenna_id").alias("num_unique_antennas")
+            )
+        else:
+            for i, dim in enumerate(dimensions.keys()):
+                if setting[i]:
+                    groupby_cols.append(dim)
+                    cols_to_use_for_pivot.extend(pivot_cols[dim])
+                    if drop_cols[dim]:
+                        cols_to_drop.extend(drop_cols[dim])
+
+            df = _get_groupby_and_pivot_df(
+                groupby_cols,
+                cols_to_use_for_pivot,
+                cols_to_drop,
+            )
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -924,37 +1614,89 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    window = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
-    entropy_df = (
-        spark_df.groupby("caller_id", "caller_antenna_id", "is_weekend", "is_daytime")
-        .agg(count(lit(0)).alias("interaction_count"))
-        .withColumn("total_count", pys_sum("interaction_count").over(window))
-        .withColumn(
-            "fraction_of_interactions",
-            (col("interaction_count") / col("total_count").cast("float")),
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(
-            (
-                -1
-                * pys_sum(
-                    col("fraction_of_interactions")
-                    * pys_log(col("fraction_of_interactions"))
-                )
-            ).alias("entropy_of_antennas")
-        )
-    )
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
+        # Build window based on groupby_cols
+        window = Window.partitionBy(*groupby_cols)
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "entropy_of_antennas",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
+        entropy_df = (
+            spark_df.groupby(groupby_cols + ["caller_antenna_id"])
+            .agg(count(lit(0)).alias("interaction_count"))
+            .withColumn("total_count", pys_sum("interaction_count").over(window))
+            .withColumn(
+                "fraction_of_interactions",
+                (col("interaction_count") / col("total_count").cast("float")),
+            )
+            .groupby(groupby_cols)
+            .agg(
+                (
+                    -1
+                    * pys_sum(
+                        col("fraction_of_interactions")
+                        * pys_log(col("fraction_of_interactions"))
+                    )
+                ).alias("entropy_of_antennas")
+            )
+        )
+
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "entropy_of_antennas",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
+        else:
+            # No pivoting needed, just rename the column
+            pivoted_df = entropy_df.select("caller_id", "entropy_of_antennas")
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+
+        return pivoted_df
+
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        if setting.sum() == 0:
+            # No dimensions case
+            df = _get_groupby_and_pivot_df(groupby_cols, cols_to_use_for_pivot)
+        else:
+            for i, (dim_name, dim_value) in enumerate(dimensions.items()):
+                if setting[i]:
+                    groupby_cols.append(dim_name)
+                    cols_to_use_for_pivot.extend(pivot_cols[dim_name])
+                else:
+                    cols_to_drop.extend(drop_cols[dim_name])
+            df = _get_groupby_and_pivot_df(
+                groupby_cols, cols_to_use_for_pivot, cols_to_drop
+            )
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_radius_of_gyration(
@@ -985,46 +1727,92 @@ def get_radius_of_gyration(
     # Join antennas and CDR data
     joined_df = spark_df.join(spark_antennas_df, on="caller_antenna_id", how="inner")
 
-    # Calculate center of mass coordinates
-    coordinates_df = (
-        joined_df.groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(
-            pys_sum("latitude").alias("sum_latitude"),
-            pys_sum("longitude").alias("sum_longitude"),
-            count(lit(0)).alias("num_records"),
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        # Calculate center of mass coordinates
+        coordinates_df = (
+            joined_df.groupby(groupby_cols)
+            .agg(
+                pys_sum("latitude").alias("sum_latitude"),
+                pys_sum("longitude").alias("sum_longitude"),
+                count(lit(0)).alias("num_records"),
+            )
+            .withColumn(
+                "center_of_mass_latitude",
+                col("sum_latitude") / col("num_records").cast("float"),
+            )
+            .withColumn(
+                "center_of_mass_longitude",
+                col("sum_longitude") / col("num_records").cast("float"),
+            )
+            .drop("latitude", "longitude")
         )
-        .withColumn(
-            "center_of_mass_latitude",
-            col("sum_latitude") / col("num_records").cast("float"),
-        )
-        .withColumn(
-            "center_of_mass_longitude",
-            col("sum_longitude") / col("num_records").cast("float"),
-        )
-        .drop("latitude", "longitude")
-    )
 
-    coordinates_df = joined_df.join(
-        coordinates_df,
-        on=["caller_id", "is_weekend", "is_daytime"],
-    )
-    distance_df = _great_circle_distance(coordinates_df)
-    radius_df = distance_df.groupby("caller_id", "is_weekend", "is_daytime").agg(
-        sqrt(pys_sum(col("radius") ** 2 / col("num_records").cast("float"))).alias(
-            "radius_of_gyration"
+        coordinates_df = joined_df.join(
+            coordinates_df,
+            on=groupby_cols,
         )
-    )
+        distance_df = _great_circle_distance(coordinates_df)
+        radius_df = distance_df.groupby(groupby_cols).agg(
+            sqrt(pys_sum(col("radius") ** 2 / col("num_records").cast("float"))).alias(
+                "radius_of_gyration"
+            )
+        )
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "radius_of_gyration",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = radius_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = radius_df.select("caller_id", "radius_of_gyration")
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "radius_of_gyration",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+
+        return pivoted_df
+
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = radius_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+
+        for i, (dim_name, _) in enumerate(dimensions.items()):
+            if setting[i]:
+                groupby_cols.append(dim_name)
+                cols_to_use_for_pivot.extend(pivot_cols[dim_name])
+            else:
+                cols_to_drop.extend(drop_cols[dim_name])
+        df = _get_groupby_and_pivot_df(
+            groupby_cols, cols_to_use_for_pivot, cols_to_drop
+        )
+
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_pareto_principle_antennas(
@@ -1047,43 +1835,85 @@ def get_pareto_principle_antennas(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    # Configure windows for calculations
-    window_1 = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
-    window_2 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
-        col("interaction_count").desc()
-    )
-    window_3 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
-        "row_number"
-    )
-
-    # Calculate Pareto principle antenna stats
-    antenna_df = (
-        spark_df.groupby("caller_id", "caller_antenna_id", "is_weekend", "is_daytime")
-        .agg(count(lit(0)).alias("interaction_count"))
-        .withColumn("total_count", pys_sum("interaction_count").over(window_1))
-        .withColumn("row_number", row_number().over(window_2))
-        .withColumn("cumsum_count", pys_sum("interaction_count").over(window_3))
-        .withColumn(
-            "fraction_count", col("cumsum_count") / col("total_count").cast("float")
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
+        # Configure windows for calculations
+        window_1 = Window.partitionBy(*groupby_cols)
+        window_2 = Window.partitionBy(*groupby_cols).orderBy(
+            col("interaction_count").desc()
         )
-        .withColumn(
-            "row_number",
-            when(col("fraction_count") >= percentage_threshold, col("row_number")),
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(pys_min("row_number").alias("num_pareto_principle_antennas"))
-    )
+        window_3 = Window.partitionBy(*groupby_cols).orderBy("row_number")
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "num_pareto_principle_antennas",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
+        # Calculate Pareto principle antenna stats
+        antenna_df = (
+            spark_df.groupby("caller_antenna_id", *groupby_cols)
+            .agg(count(lit(0)).alias("interaction_count"))
+            .withColumn("total_count", pys_sum("interaction_count").over(window_1))
+            .withColumn("row_number", row_number().over(window_2))
+            .withColumn("cumsum_count", pys_sum("interaction_count").over(window_3))
+            .withColumn(
+                "fraction_count", col("cumsum_count") / col("total_count").cast("float")
+            )
+            .withColumn(
+                "row_number",
+                when(col("fraction_count") >= percentage_threshold, col("row_number")),
+            )
+            .groupby(*groupby_cols)
+            .agg(pys_min("row_number").alias("num_pareto_principle_antennas"))
+        )
+
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "num_pareto_principle_antennas",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = antenna_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = antenna_df.select("caller_id", "num_pareto_principle_antennas")
+        return pivoted_df
+
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = antenna_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        if setting.sum() == 0:
+            df = _get_groupby_and_pivot_df(groupby_cols, cols_to_use_for_pivot)
+        else:
+            for i, (dim_name, _) in enumerate(dimensions.items()):
+                if setting[i]:
+                    groupby_cols.append(dim_name)
+                    cols_to_use_for_pivot.extend(pivot_cols[dim_name])
+                else:
+                    cols_to_drop.extend(drop_cols[dim_name])
+            df = _get_groupby_and_pivot_df(
+                groupby_cols, cols_to_use_for_pivot, cols_to_drop
+            )
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_average_num_of_interactions_from_home_antennas(
@@ -1105,41 +1935,99 @@ def get_average_num_of_interactions_from_home_antennas(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
+    # Filter for outgoing transactions only to avoid double-counting
+    # after swap_caller_and_recipient operation
+    # spark_df = spark_df.filter(
+    #     col("direction_of_transaction") == DirectionOfTransactionEnum.OUTGOING.value
+    # )
+
     # Identify home antenna per caller:
     # home antenna is the antenna from which the most nightime-calls are made
     window = Window.partitionBy("caller_id").orderBy(
         col("filtered_interaction_count").desc()
     )
-    home_antenna_df = (
-        spark_df.where(col("is_daytime") == 0)
-        .groupby("caller_id", "caller_antenna_id")
-        .agg(count(lit(0)).alias("filtered_interaction_count"))
-        .withColumn("row_number", row_number().over(window))
-        .where(col("row_number") == 1)
-        .withColumnRenamed("caller_antenna_id", "home_antenna_id")
-        .drop("filtered_interaction_count")
-    )
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
-    home_interaction_df = (
-        spark_df.join(home_antenna_df, on="caller_id", how="inner")
-        .withColumn(
-            "is_home_interaction",
-            when(col("caller_antenna_id") == col("home_antenna_id"), 1).otherwise(0),
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
+        home_antenna_df = (
+            spark_df.where(col("is_daytime") == 0)
+            .groupby("caller_antenna_id", "caller_id")
+            .agg(count(lit(0)).alias("filtered_interaction_count"))
+            .withColumn("row_number", row_number().over(window))
+            .where(col("row_number") == 1)
+            .withColumnRenamed("caller_antenna_id", "home_antenna_id")
+            .select("caller_id", "home_antenna_id")
         )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(pys_mean("is_home_interaction").alias("mean_home_antenna_interaction"))
-    )
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "mean_home_antenna_interaction",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
-    )
+        mean_df = (
+            (
+                spark_df.join(home_antenna_df, on="caller_id", how="inner")
+                # .filter(col("caller_antenna_id").isNotNull() & col("home_antenna_id").isNotNull())
+                .withColumn(
+                    "is_home_interaction",
+                    when(
+                        col("caller_antenna_id") == col("home_antenna_id"), 1
+                    ).otherwise(0),
+                )
+            )
+            .groupby(groupby_cols)
+            .agg(pys_mean("is_home_interaction").alias("mean_home_antenna_interaction"))
+        )
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "mean_home_antenna_interaction",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = mean_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = mean_df.select("caller_id", "mean_home_antenna_interaction")
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
 
-    return home_interaction_df.groupby("caller_id").agg(*aggs)
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        if setting.sum() == 0:
+            df = _get_groupby_and_pivot_df(groupby_cols, cols_to_use_for_pivot)
+        else:
+            for i, (dim_name, _) in enumerate(dimensions.items()):
+                if setting[i]:
+                    groupby_cols.append(dim_name)
+                    cols_to_use_for_pivot.append(pivot_cols[dim_name])
+                else:
+                    cols_to_drop.append(drop_cols[dim_name])
+            df = _get_groupby_and_pivot_df(
+                groupby_cols, cols_to_use_for_pivot, cols_to_drop
+            )
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 # International features
@@ -1169,6 +2057,16 @@ def get_international_interaction_statistics(
         pys_sum("duration").alias("total_call_duration"),
         countDistinct("day").alias("num_unique_days"),
     )
+    combined_stats_df = (
+        international_df.groupBy("caller_id")
+        .agg(
+            count("recipient_id").alias("num_interactions"),
+            countDistinct("recipient_id").alias("num_unique_recipients"),
+            countDistinct("day").alias("num_unique_days"),
+        )
+        .drop("transaction_type")
+    )
+
     all_aggs = []
     for pivot_col in [
         "num_interactions",
@@ -1188,7 +2086,8 @@ def get_international_interaction_statistics(
 
     # Drop call duration columns for texts
     stats_df = stats_df.drop("text_total_call_duration")
-    return stats_df
+
+    return stats_df.join(combined_stats_df, on="caller_id", how="inner")
 
 
 # TODO: this is a reimplementaion of deprecated.featurizer.location_features. However, there are additional calculations
@@ -1248,7 +2147,7 @@ def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     # Validate input dataframe
     validate_dataframe(spark_df, MobileDataUsageDataWithDay)
     summary_stats_aggs = _get_summary_stats_cols(
-        "volume",
+        "daily_data_volume",
         [
             StatsComputationMethodEnum.MEAN,
             StatsComputationMethodEnum.MIN,
@@ -1257,11 +2156,15 @@ def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
         ],
     )
 
-    summary_stats_df = spark_df.groupby("caller_id").agg(
-        pys_sum("volume").alias("total_data_volume"),
+    summary_stats_per_day_df = spark_df.groupby("caller_id", "day").agg(
+        pys_sum("volume").alias("daily_data_volume"),
+    )
+    summary_stats_df = summary_stats_per_day_df.groupby("caller_id").agg(
+        pys_sum("daily_data_volume").alias("total_data_volume"),
         countDistinct("day").alias("num_unique_days_with_data_usage"),
         *summary_stats_aggs,
     )
+
     return summary_stats_df
 
 
@@ -1408,7 +2311,6 @@ def get_recharge_amount_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
             StatsComputationMethodEnum.MEAN,
             StatsComputationMethodEnum.MIN,
             StatsComputationMethodEnum.MAX,
-            StatsComputationMethodEnum.STD,
         ],
     )
 
@@ -1468,6 +2370,10 @@ def preprocess_data(
         filtered_no_spammers_df = filtered_df[
             ~filtered_df["caller_id"].isin(spammers_list)
         ]
+        if "recipient_id" in filtered_df.columns:
+            filtered_no_spammers_df = filtered_no_spammers_df[
+                ~filtered_no_spammers_df["recipient_id"].isin(spammers_list)
+            ]
 
         # Remove outlier days
         if schema == CallDataRecordData:
