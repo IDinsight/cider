@@ -63,6 +63,7 @@ from .dependencies import (
     _get_agg_columns_by_cdr_time_and_transaction_type,
     _get_summary_stats_cols,
     _great_circle_distance,
+    add_day_column,
     get_outlier_days_from_cdr_data,
     get_spammers_from_cdr_data,
     filter_to_datetime,
@@ -2362,15 +2363,18 @@ def preprocess_data(
             pd.to_datetime(filter_start_date),
             pd.to_datetime(filter_end_date),
         )
+        filtered_df_with_day = add_day_column(filtered_df)
 
         if schema == CallDataRecordData:
-            spammers_list = get_spammers_from_cdr_data(filtered_df, spammer_threshold)
+            spammers_list = get_spammers_from_cdr_data(
+                filtered_df_with_day, spammer_threshold
+            )
 
         # Remove spammers
-        filtered_no_spammers_df = filtered_df[
-            ~filtered_df["caller_id"].isin(spammers_list)
+        filtered_no_spammers_df = filtered_df_with_day[
+            ~filtered_df_with_day["caller_id"].isin(spammers_list)
         ]
-        if "recipient_id" in filtered_df.columns:
+        if "recipient_id" in filtered_df_with_day.columns:
             filtered_no_spammers_df = filtered_no_spammers_df[
                 ~filtered_no_spammers_df["recipient_id"].isin(spammers_list)
             ]

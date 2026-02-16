@@ -329,9 +329,9 @@ def calculate_demographic_parity_table_per_characteristic(
     results = calculate_demographic_parity_per_characteristic(
         data, threshold_percentile
     )
-    results["population_percentage"] = data.groupby("characteristic").apply(
-        lambda x: 100 * x["weight"].sum() / data["weight"].sum(), include_groups=False
-    )
+    results["population_percentage"] = data.groupby(
+        "characteristic", group_keys=False
+    ).apply(lambda x: 100 * x["weight"].sum() / data["weight"].sum())
 
     return results
 

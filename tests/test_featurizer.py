@@ -49,6 +49,7 @@ from cider.featurizer.schemas import (
 )
 from cider.featurizer.dependencies import (
     filter_to_datetime,
+    add_day_column,
     get_spammers_from_cdr_data,
     get_outlier_days_from_cdr_data,
     get_static_diagnostic_statistics,
@@ -125,6 +126,20 @@ class TestFeaturizerDependencies:
                 filter_end_date=pd.to_datetime("2023-01-03"),
             )
 
+    def test_add_day_column(self):
+        df = pd.DataFrame(CDR_DATA)
+        df_with_day = add_day_column(df)
+
+        assert "day" in df_with_day.columns
+        expected_days = df["timestamp"].dt.date
+        assert all(df_with_day["day"] == expected_days)
+
+        df.pop("timestamp")
+        with pytest.raises(
+            ValueError, match="Dataframe must contain 'timestamp' column"
+        ):
+            add_day_column(df)
+
     def test_get_spammers_from_cdr_data(self):
         cdr = pd.DataFrame(CDR_DATA)
         # Add spammer data
@@ -141,6 +156,7 @@ class TestFeaturizerDependencies:
         }
         spammer_cdr = pd.DataFrame(spammer_data)
         cdr_with_spammer = pd.concat([cdr, spammer_cdr], ignore_index=True)
+        cdr_with_spammer = add_day_column(cdr_with_spammer)
 
         spammer_ids = get_spammers_from_cdr_data(
             cdr_with_spammer, threshold_of_calls_per_day=100
@@ -180,6 +196,7 @@ class TestFeaturizerDependencies:
         }
         outlier_cdr = pd.DataFrame(outlier_data)
         cdr_with_outlier = pd.concat([cdr, outlier_cdr], ignore_index=True)
+        cdr_with_outlier = add_day_column(cdr_with_outlier)
 
         outlier_days = get_outlier_days_from_cdr_data(
             cdr_with_outlier, zscore_threshold=1.0
@@ -227,6 +244,8 @@ class TestFeaturizerDependencies:
         else:
             assert stats.num_unique_recipients == 0
 
+        df = add_day_column(df)
+
         for col in ["caller_id", "timestamp"]:
             df_missing = df.drop(columns=[col])
             with pytest.raises(
@@ -246,10 +265,11 @@ class TestFeaturizerDependencies:
     )
     def test_get_timeseries_diagnostic_statistics(self, data):
         df = pd.DataFrame(data)
+        df = add_day_column(df)
 
         static_data = get_static_diagnostic_statistics(df)
 
-        unique_days = df["timestamp"].dt.date.nunique()
+        unique_days = df["day"].nunique()
         timeseries_stats = get_timeseries_diagnostic_statistics(df)
         assert set(timeseries_stats.columns).issubset(
             {
@@ -266,16 +286,18 @@ class TestFeaturizerDependencies:
             == timeseries_stats["total_transactions"].sum()
         )
 
-        for col in ["caller_id", "timestamp"]:
+        for col in ["caller_id", "timestamp", "day"]:
             df_missing = df.drop(columns=[col])
             with pytest.raises(
                 ValueError,
-                match="Dataframe must contain 'caller_id' and 'timestamp' columns",
+                match="Dataframe must contain 'caller_id', 'timestamp', and 'day' columns",
             ):
                 get_timeseries_diagnostic_statistics(df_missing)
 
     def test_identify_daytime(self, spark):
-        spark_cdr_data = spark.createDataFrame(pd.DataFrame(CDR_DATA))
+        pd_cdr_data = add_day_column(pd.DataFrame(CDR_DATA))
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
+
         cdr_spark_with_daytime = identify_daytime(
             spark_cdr_data, day_start=12, day_end=17
         )
@@ -292,8 +314,7 @@ class TestFeaturizerDependencies:
             identify_daytime(spark_cdr_data_no_timestamp)
 
     def test_identify_weekend(self, spark):
-        pd_cdr_data = pd.DataFrame(CDR_DATA)
-        pd_cdr_data["day"] = pd_cdr_data["timestamp"].dt.date
+        pd_cdr_data = add_day_column(pd.DataFrame(CDR_DATA))
         spark_cdr_data = spark.createDataFrame(pd_cdr_data)
         cdr_spark_with_weekend = identify_weekend(spark_cdr_data, weekend_days=[2, 6])
         cdr_with_weekend = cdr_spark_with_weekend.toPandas()
@@ -301,15 +322,13 @@ class TestFeaturizerDependencies:
         assert "is_weekend" in cdr_with_weekend.columns
         assert cdr_with_weekend.is_weekend.values.tolist() == [0, 1, 1, 0, 0, 1]
 
-        pd_cdr_data = pd.DataFrame(CDR_DATA).drop(columns=["timestamp"])
-        spark_cdr_data_no_timestamp = spark.createDataFrame(pd_cdr_data)
-        with pytest.raises(
-            ValueError, match="Dataframe must contain 'timestamp' column"
-        ):
-            identify_weekend(spark_cdr_data_no_timestamp)
+        pd_cdr_data_no_day = pd_cdr_data.drop(columns=["day"])
+        spark_cdr_data_no_day = spark.createDataFrame(pd_cdr_data_no_day)
+        with pytest.raises(ValueError, match="Dataframe must contain 'day' column"):
+            identify_weekend(spark_cdr_data_no_day)
 
     def test_swap_caller_and_recipient(self, spark):
-        pd_cdr_data = pd.DataFrame(CDR_DATA)
+        pd_cdr_data = add_day_column(pd.DataFrame(CDR_DATA))
         spark_cdr_data = spark.createDataFrame(pd_cdr_data)
         spark_cdr_swapped = swap_caller_and_recipient(spark_cdr_data)
         pd_cdr_swapped = spark_cdr_swapped.toPandas()
@@ -360,6 +379,7 @@ class TestFeaturizerDependencies:
             [pd.DataFrame(CDR_DATA).copy(), pd.DataFrame(conversations)],
             ignore_index=True,
         )
+        pd_cdr_data = add_day_column(pd_cdr_data)
         spark_cdr_data = spark.createDataFrame(pd_cdr_data)
         spark_cdr_tagged = identify_and_tag_conversations(spark_cdr_data, max_wait=3600)
         pd_cdr_tagged = spark_cdr_tagged.toPandas()
@@ -383,8 +403,9 @@ class TestFeaturizerDependencies:
                 identify_and_tag_conversations(spark_cdr_missing)
 
     def test_identify_mobile_money_transaction_direction(self, spark):
-        pd_mobile_money_data = pd.DataFrame(MOBILE_MONEY_TRANSACTION_DATA)
-        pd_mobile_money_data["day"] = pd_mobile_money_data["timestamp"].dt.date
+        pd_mobile_money_data = add_day_column(
+            pd.DataFrame(MOBILE_MONEY_TRANSACTION_DATA)
+        )
         spark_mobile_money_data = spark.createDataFrame(pd_mobile_money_data)
         spark_mobile_money_direction = identify_mobile_money_transaction_direction(
             spark_mobile_money_data
@@ -438,8 +459,7 @@ class TestFeaturizerCoreCDRData:
 
     @pytest.fixture
     def spark_cdr_with_conversations(self, spark):
-        pd_cdr_data = pd.DataFrame(CDR_DATA)
-        pd_cdr_data.loc[:, "day"] = pd_cdr_data["timestamp"].dt.date
+        pd_cdr_data = add_day_column(pd.DataFrame(CDR_DATA))
 
         spark_cdr_data = spark.createDataFrame(pd_cdr_data)
         spark_cdr_with_daytime = identify_daytime(spark_cdr_data)
