@@ -31,6 +31,7 @@ from typing import Any
 from pyspark.sql import DataFrame as SparkDataFrame
 
 from .schemas import (
+    CallDataRecordDataWithDay,
     DataDiagnosticStatistics,
     AllowedPivotColumnsEnum,
     DirectionOfTransactionEnum,
@@ -63,7 +64,6 @@ from pyspark.sql.functions import (
 from pyspark.sql.window import Window
 from cider.schemas import (
     CallDataRecordTransactionType,
-    CallDataRecordData,
 )
 from cider.utils import validate_dataframe
 import numpy as np
@@ -149,7 +149,7 @@ def _get_agg_columns_by_cdr_time_and_transaction_type(
     aggs = []
     for vals in meshgrid:
         agg_name = ""
-        condition = True
+        condition = lit(True)
         for i, pivot_col in enumerate(cols_to_use_for_pivot):
             if pivot_col == AllowedPivotColumnsEnum.IS_WEEKEND:
                 is_weekend_val = vals[i]
@@ -240,6 +240,23 @@ def filter_to_datetime(
     return df
 
 
+def add_day_column(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add a 'day' column to the dataframe based on the 'timestamp' column.
+
+    Args:
+        df: pandas dataframe with a 'timestamp' column
+
+    Returns:
+        df: pandas dataframe with an additional 'day' column
+    """
+    if "timestamp" not in df.columns:
+        raise ValueError("Dataframe must contain 'timestamp' column")
+
+    df.loc[:, "day"] = df["timestamp"].dt.date
+    return df
+
+
 def get_spammers_from_cdr_data(
     cdr_data: pd.DataFrame, threshold_of_calls_per_day: float = 10
 ) -> list[str]:
@@ -252,22 +269,22 @@ def get_spammers_from_cdr_data(
         spammers: list of caller IDs identified as spammers
     """
     # Validate input dataframe
-    validate_dataframe(cdr_data, CallDataRecordData)
-
-    # Extract day from timestamp
-    cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
+    validate_dataframe(cdr_data, CallDataRecordDataWithDay)
 
     # Get number of transactions per day per transaction type and per caller
     grouped_cdr_data = (
-        (cdr_data.groupby(["caller_id", "transaction_type"], as_index=False))
+        (
+            cdr_data.groupby(
+                ["caller_id", "transaction_type"], as_index=False, group_keys=False
+            )
+        )
         .apply(
             lambda x: pd.Series(
                 {
                     "count_transactions": x.shape[0],
                     "active_days": x["day"].nunique(),
                 }
-            ),
-            include_groups=False,
+            )
         )
         .reset_index(drop=True)
     )
@@ -300,10 +317,7 @@ def get_outlier_days_from_cdr_data(
         cdr_data: pandas dataframe with outlier days removed
     """
     # Validate input dataframe
-    validate_dataframe(cdr_data, CallDataRecordData)
-
-    # Add day column
-    cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
+    validate_dataframe(cdr_data, CallDataRecordDataWithDay)
 
     # Group data by caller_id and day to get daily transaction counts
     daily_counts = cdr_data.groupby(["day", "transaction_type"], as_index=False).size()
@@ -359,10 +373,11 @@ def get_timeseries_diagnostic_statistics(df: pd.DataFrame) -> pd.DataFrame:
         statistics: pandas dataframe with timeseries diagnostic statistics
 
     """
-    if not set(["caller_id", "timestamp"]).issubset(set(df.columns)):
-        raise ValueError("Dataframe must contain 'caller_id' and 'timestamp' columns")
+    if not set(["caller_id", "timestamp", "day"]).issubset(set(df.columns)):
+        raise ValueError(
+            "Dataframe must contain 'caller_id', 'timestamp', and 'day' columns"
+        )
 
-    df.loc[:, "day"] = df["timestamp"].dt.date
     groupby_columns = ["day"]
 
     if "transaction_type" in df.columns:
@@ -416,13 +431,13 @@ def identify_weekend(
     Identify weekend records in the dataframe.
 
     Args:
-        spark_df: Dataframe with a 'timestamp' column
+        spark_df: Dataframe with a 'day' column
         weekend_days: List of integers representing weekend days (1=Sunday, 7=Saturday)
     Returns:
         df: Dataframe with additional 'is_weekend' column
     """
-    if "timestamp" not in spark_df.columns:
-        raise ValueError("Dataframe must contain 'timestamp' column")
+    if "day" not in spark_df.columns:
+        raise ValueError("Dataframe must contain 'day' column")
 
     spark_df = spark_df.withColumn(
         "is_weekend",
@@ -444,7 +459,7 @@ def swap_caller_and_recipient(
         df: Dataframe with swapped caller and recipient columns
     """
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordData)
+    validate_dataframe(spark_df, CallDataRecordDataWithDay)
 
     # Add a direction_of_transaction column to indicate incoming/outgoing
     spark_df = spark_df.withColumn(
@@ -502,7 +517,7 @@ def identify_and_tag_conversations(
         spark_df: tagged spark dataframe
     """
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordData)
+    validate_dataframe(spark_df, CallDataRecordDataWithDay)
 
     window = Window.partitionBy("caller_id", "recipient_id").orderBy("timestamp")
 

@@ -330,7 +330,7 @@ def calculate_demographic_parity_per_characteristic(
         data_copy["groundtruth_consumption"] <= groundtruth_threshold_value
     ).astype(int)
 
-    data_grouped = data_copy.groupby("characteristic").apply(
+    data_grouped = data_copy.groupby("characteristic", group_keys=False).apply(
         lambda x: pd.Series(
             {
                 "groundtruth_poverty_percentage": 100
@@ -340,8 +340,7 @@ def calculate_demographic_parity_per_characteristic(
                 * (x.is_targeted_proxy * x.weight).sum()
                 / x.weight.sum(),
             },
-        ),
-        include_groups=False,
+        )
     )
     data_grouped["demographic_parity"] = (
         data_grouped["proxy_poverty_percentage"]

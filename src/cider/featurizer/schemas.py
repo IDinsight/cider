@@ -93,15 +93,27 @@ class DataDiagnosticStatistics(BaseModel):
     ]
 
 
-class CallDataRecordTagged(CallDataRecordData):
+class CallDataRecordDataWithDay(CallDataRecordData):
     """
-    Schema for call data record with tagged conversations.
-    Inherits from CallDataRecordData and adds additional fields for tagged conversation.
+    Schema for call data record with day information.
+    Inherits from CallDataRecordData and adds an additional field for day.
     """
 
     model_config = ConfigDict(from_attributes=True)
 
-    day: Annotated[date, Field(description="Day of the month")]
+    day: Annotated[
+        date, Field(description="Date without timestamp when the call occurred")
+    ]
+
+
+class CallDataRecordTagged(CallDataRecordDataWithDay):
+    """
+    Schema for call data record with tagged conversations.
+    Inherits from CallDataRecordDataWithDay and adds additional fields for tagged conversation.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
     is_daytime: Annotated[
         bool, Field(description="Whether the call was made during daytime")
     ]
