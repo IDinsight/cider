@@ -2539,8 +2539,8 @@ def featurize_cdr_data(
     ]
 
     feature_dfs = [df.persist() for df in feature_dfs]
-    for df in feature_dfs:
-        df.count()
+    # for df in feature_dfs:
+    #     df.count()
 
     spark_merged_df = reduce(
         lambda df1, df2: df1.join(df2, on="caller_id", how="outer"),
