@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 from typing import Annotated
 from enum import Enum
 from cider.schemas import (
@@ -77,7 +77,8 @@ class DataDiagnosticStatistics(BaseModel):
     Schema for data diagnostic statistics.
     """
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     total_transactions: Annotated[
         int, Field(description="Total number of transactions in the dataset")
@@ -99,7 +100,8 @@ class CallDataRecordDataWithDay(CallDataRecordData):
     Inherits from CallDataRecordData and adds an additional field for day.
     """
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     day: Annotated[
         date, Field(description="Date without timestamp when the call occurred")
@@ -112,7 +114,8 @@ class CallDataRecordTagged(CallDataRecordDataWithDay):
     Inherits from CallDataRecordDataWithDay and adds additional fields for tagged conversation.
     """
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     is_daytime: Annotated[
         bool, Field(description="Whether the call was made during daytime")
@@ -135,7 +138,8 @@ class MobileDataUsageDataWithDay(MobileDataUsageData):
     Inherits from MobileDataUsageData and adds an additional field for day.
     """
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     day: Annotated[
         date, Field(description="Date without timestamp when the data usage occurred")
@@ -148,7 +152,8 @@ class MobileMoneyDataWithDay(MobileMoneyTransactionData):
     Inherits from MobileMoneyTransactionData and adds an additional field for day.
     """
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     day: Annotated[
         date, Field(description="Date without timestamp when the transaction occurred")
@@ -160,7 +165,8 @@ class MobileMoneyDataWithDirection(BaseModel):
     Schema for mobile money transaction data with direction of transaction.
     """
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     primary_id: Annotated[
         str,
@@ -201,7 +207,8 @@ class RechargeDataWithDay(RechargeData):
     Inherits from RechargeData and adds an additional field for day.
     """
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     day: Annotated[
         date, Field(description="Date without timestamp when the transaction occurred")
@@ -213,7 +220,8 @@ class AntennaDataGeometry(BaseModel):
     Schema for antenna data with geometry information.
     """
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     caller_antenna_id: Annotated[
         str, Field(description="Unique identifier for the antenna")
@@ -227,6 +235,12 @@ class AntennaDataGeometryWithRegion(AntennaDataGeometry):
     Schema for antenna data with region information.
     """
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     region: Annotated[str, Field(description="Region of the antenna location")]
+
+
+# ============================================================================
+# DEPENDENCY FUNCTIONS (merged from dependencies.py)
+# ============================================================================
