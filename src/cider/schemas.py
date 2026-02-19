@@ -25,7 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Annotated
 from datetime import datetime
 from enum import Enum
@@ -54,7 +54,8 @@ class MobileMoneyTransactionType(str, Enum):
 
 # Data schemas
 class CallDataRecordData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
     recipient_id: Annotated[
@@ -80,7 +81,8 @@ class CallDataRecordData(BaseModel):
 
 
 class AntennaData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     antenna_id: Annotated[str, Field(description="Unique identifier for the antenna")]
     tower_id: Annotated[
@@ -92,7 +94,8 @@ class AntennaData(BaseModel):
 
 
 class RechargeData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
     timestamp: Annotated[datetime, Field(description="Timestamp of the recharge")]
@@ -102,7 +105,8 @@ class RechargeData(BaseModel):
 
 
 class MobileDataUsageData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
     timestamp: Annotated[datetime, Field(description="Timestamp of the data usage")]
@@ -110,7 +114,8 @@ class MobileDataUsageData(BaseModel):
 
 
 class MobileMoneyTransactionData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
     caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
     recipient_id: Annotated[
@@ -125,13 +130,13 @@ class MobileMoneyTransactionData(BaseModel):
         float, Field(description="Amount of the transaction in local currency")
     ]
     caller_balance_before: Annotated[
-        float,
+        float | None,
         Field(description="Caller's balance before the transaction in local currency"),
-    ]
+    ] = None
     caller_balance_after: Annotated[
-        float,
+        float | None,
         Field(description="Caller's balance after the transaction in local currency"),
-    ]
+    ] = None
     recipient_balance_before: Annotated[
         float | None,
         Field(
@@ -147,10 +152,14 @@ class MobileMoneyTransactionData(BaseModel):
 
     @model_validator(mode="after")
     def check_balance_and_recipient_info(self) -> "MobileMoneyTransactionData":
-        if self.caller_balance_after != self.caller_balance_before - self.amount:
-            raise ValueError(
-                f"Caller balance after transaction should be {self.caller_balance_before - self.amount}. Found {self.caller_balance_after} instead."
-            )
+        if (
+            self.caller_balance_after is not None
+            and self.caller_balance_before is not None
+        ):
+            if self.caller_balance_after != self.caller_balance_before - self.amount:
+                raise ValueError(
+                    f"Caller balance after transaction should be {self.caller_balance_before - self.amount}. Found {self.caller_balance_after} instead."
+                )
 
         # Recipient should be None for cashin and cashout transactions
         if self.transaction_type in [

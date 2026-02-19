@@ -89,6 +89,7 @@ def validate_dataframe(
     df: SparkDataFrame | PandasDataFrame,
     required_schema: type[BaseModel],
     check_data_points: bool = False,
+    check_optional_columns: bool = False,
 ) -> None:
     """
     Validate that the dataframe has the required schema.
@@ -97,14 +98,23 @@ def validate_dataframe(
         df: Spark or Pandas dataframe to validate
         required_schema: Pydantic BaseModel schema that the dataframe must conform to
         check_data_points: Whether to check each of the rows in the dataframe, in addition to the column names. Default is False.
+        check_optional_columns: Whether to check optional columns in the dataframe. Default is False.
 
     Raises:
         ValueError: If any of the required columns are missing from the dataframe
     """
+
     df_columns = set(df.columns)
-    required_columns = set(
-        [k for k, field in required_schema.model_fields.items() if field.is_required()]
-    )
+    if check_optional_columns:
+        required_columns = set([k for k in required_schema.model_fields.keys()])
+    else:
+        required_columns = set(
+            [
+                k
+                for k, field in required_schema.model_fields.items()
+                if field.is_required()
+            ]
+        )
     missing_columns = required_columns - df_columns
     if missing_columns:
         raise ValueError(
@@ -318,9 +328,12 @@ def correct_generated_synthetic_mobile_money_transaction_data(
     )
 
     # Ensure caller_balance_after matches caller_balance_before - amount
-    mobile_money_df["caller_balance_after"] = (
-        mobile_money_df["caller_balance_before"] - mobile_money_df["amount"]
-    )
+    if set(["caller_balance_before", "caller_balance_after"]).issubset(
+        set(mobile_money_df.columns)
+    ):
+        mobile_money_df["caller_balance_after"] = (
+            mobile_money_df["caller_balance_before"] - mobile_money_df["amount"]
+        )
 
     if "recipient_id" in mobile_money_df.columns:
 
@@ -333,14 +346,17 @@ def correct_generated_synthetic_mobile_money_transaction_data(
             ]
         )
         mobile_money_df.loc[mask, "recipient_id"] = None
-        mobile_money_df.loc[mask, "recipient_balance_before"] = None
-        mobile_money_df.loc[mask, "recipient_balance_after"] = None
+        if set(["recipient_balance_before", "recipient_balance_after"]).issubset(
+            set(mobile_money_df.columns)
+        ):
+            mobile_money_df.loc[mask, "recipient_balance_before"] = None
+            mobile_money_df.loc[mask, "recipient_balance_after"] = None
 
-        # For transactions with recipient_id, ensure recipient_balance_after matches recipient_balance_before + amount
-        mobile_money_df.loc[~mask, "recipient_balance_after"] = (
-            mobile_money_df.loc[~mask, "recipient_balance_before"]
-            + mobile_money_df.loc[~mask, "amount"]
-        )
+            # For transactions with recipient_id, ensure recipient_balance_after matches recipient_balance_before + amount
+            mobile_money_df.loc[~mask, "recipient_balance_after"] = (
+                mobile_money_df.loc[~mask, "recipient_balance_before"]
+                + mobile_money_df.loc[~mask, "amount"]
+            )
 
     return mobile_money_df
 

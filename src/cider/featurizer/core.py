@@ -1531,7 +1531,8 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
     logger.info("Calculating number of unique antennas per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     def _get_groupby_and_pivot_df(
         groupby_cols: list[str],
@@ -1613,7 +1614,8 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
     logger.info("Calculating entropy of antennas per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     def _get_groupby_and_pivot_df(
         groupby_cols: list[str],
@@ -1722,8 +1724,10 @@ def get_radius_of_gyration(
     logger.info("Calculating radius of gyration per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
     validate_dataframe(spark_antennas_df, AntennaDataGeometry)
+
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     # Join antennas and CDR data
     joined_df = spark_df.join(spark_antennas_df, on="caller_antenna_id", how="inner")
@@ -1834,7 +1838,9 @@ def get_pareto_principle_antennas(
     logger.info("Calculating Pareto principle antennas per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
+
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     def _get_groupby_and_pivot_df(
         groupby_cols: list[str],
@@ -1849,6 +1855,7 @@ def get_pareto_principle_antennas(
         window_3 = Window.partitionBy(*groupby_cols).orderBy("row_number")
 
         # Calculate Pareto principle antenna stats
+
         antenna_df = (
             spark_df.groupby("caller_antenna_id", *groupby_cols)
             .agg(count(lit(0)).alias("interaction_count"))
@@ -1934,7 +1941,7 @@ def get_average_num_of_interactions_from_home_antennas(
     )
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
 
     # Filter for outgoing transactions only to avoid double-counting
     # after swap_caller_and_recipient operation
@@ -2110,8 +2117,10 @@ def get_caller_counts_per_region(
     logger.info("Calculating caller counts per region")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
     validate_dataframe(spark_antenna_df, AntennaDataGeometryWithRegion)
+
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     # Merge CDR and antenna data by caller ID
     joined_df = spark_df.join(spark_antenna_df, on="caller_antenna_id", how="inner")
@@ -2258,7 +2267,9 @@ def get_mobile_money_balance_stats(
     logger.info("Calculating mobile money balance statistics per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+    validate_dataframe(
+        spark_df, MobileMoneyDataWithDirection, check_optional_columns=True
+    )
 
     summary_stats_cols = [
         StatsComputationMethodEnum.MEAN,

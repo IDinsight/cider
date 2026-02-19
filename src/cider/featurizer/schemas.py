@@ -179,11 +179,13 @@ class MobileMoneyDataWithDirection(BaseModel):
     ]
     amount: Annotated[float, Field(description="Amount of the transaction")]
     balance_before: Annotated[
-        float, Field(description="Balance before the transaction for primary account")
-    ]
+        float | None,
+        Field(description="Balance before the transaction for primary account"),
+    ] = None
     balance_after: Annotated[
-        float, Field(description="Balance after the transaction for primary account")
-    ]
+        float | None,
+        Field(description="Balance after the transaction for primary account"),
+    ] = None
     transaction_type: Annotated[
         MobileMoneyTransactionType, Field(description="Type of the transaction")
     ]
