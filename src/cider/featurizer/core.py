@@ -2122,10 +2122,13 @@ def get_caller_counts_per_region(
         countDistinct("caller_antenna_id").alias("num_unique_antennas"),
     )
 
+    # Get unique regions for pivoting
+    regions = [r[0] for r in spark_antenna_df.select("region").distinct().collect()]
+
     # Pivot region statistics
     pivoted_df = (
         region_counts_df.groupby("caller_id")
-        .pivot("region")
+        .pivot("region", regions)
         .agg(first("num_unique_interactions"), first("num_unique_antennas"))
     )
 
@@ -2534,6 +2537,11 @@ def featurize_cdr_data(
         spark_cdr_international_stats,
         spark_cdr_antenna_location_features,
     ]
+
+    feature_dfs = [df.persist() for df in feature_dfs]
+    # for df in feature_dfs:
+    #     df.count()
+
     spark_merged_df = reduce(
         lambda df1, df2: df1.join(df2, on="caller_id", how="outer"),
         feature_dfs,

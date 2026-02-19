@@ -238,7 +238,7 @@ def plot_all_fairness_metrics_per_characteristic_value(
         axes[0].set_xticklabels(
             [
                 ind
-                + f"\n Pop. % = {all_fairness_metrics_df.loc[ind, "population_percentage"]: .2f}"
+                + f"\n Pop. % = {all_fairness_metrics_df.loc[ind, 'population_percentage']: .2f}"
                 for ind in all_fairness_metrics_df.index
             ]
         )
@@ -277,7 +277,7 @@ def plot_all_fairness_metrics_per_characteristic_value(
         axes[1].set_xticklabels(
             [
                 ind
-                + f"\n Pop. % = {all_fairness_metrics_df.loc[ind, "population_percentage"]: .2f}"
+                + f"\n Pop. % = {all_fairness_metrics_df.loc[ind, 'population_percentage']: .2f}"
                 for ind in all_fairness_metrics_df.index
             ]
         )
@@ -297,7 +297,7 @@ def plot_all_fairness_metrics_per_characteristic_value(
         axes[2].set_xticklabels(
             [
                 ind
-                + f"\n Pop. % = {all_fairness_metrics_df.loc[ind, "population_percentage"]: .2f}"
+                + f"\n Pop. % = {all_fairness_metrics_df.loc[ind, 'population_percentage']: .2f}"
                 for ind in all_fairness_metrics_df.index
             ]
         )
