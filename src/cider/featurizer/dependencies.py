@@ -472,7 +472,7 @@ def swap_caller_and_recipient(
 
     # Create a copy with swapped caller and recipient columns and
     # direction_of_transaction set to incoming
-    spark_df_copy_without_antenna = spark_df.select(
+    spark_df_copy_with_swapped_ids = spark_df.select(
         col("recipient_id").alias("caller_id"),
         col("caller_id").alias("recipient_id"),
         *[
@@ -486,12 +486,12 @@ def swap_caller_and_recipient(
         ],
     )
     if has_antenna_data:
-        spark_df_copy = spark_df_copy_without_antenna.select(
+        spark_df_copy_with_swapped_antennas = spark_df_copy_with_swapped_ids.select(
             col("recipient_antenna_id").alias("caller_antenna_id"),
             col("caller_antenna_id").alias("recipient_antenna_id"),
             *[
                 col(c)
-                for c in spark_df_copy_without_antenna.columns
+                for c in spark_df_copy_with_swapped_ids.columns
                 if c
                 not in [
                     "caller_antenna_id",
@@ -500,14 +500,16 @@ def swap_caller_and_recipient(
             ],
         )
     else:
-        spark_df_copy = spark_df_copy_without_antenna
+        spark_df_copy_with_swapped_antennas = spark_df_copy_with_swapped_ids
 
-    spark_df_copy = spark_df_copy.withColumn(
-        "direction_of_transaction", lit(DirectionOfTransactionEnum.INCOMING.value)
+    spark_df_copy_with_swapped_antennas = (
+        spark_df_copy_with_swapped_antennas.withColumn(
+            "direction_of_transaction", lit(DirectionOfTransactionEnum.INCOMING.value)
+        )
     )
 
     # Append the swapped dataframe to the original dataframe
-    spark_df = spark_df.unionByName(spark_df_copy)
+    spark_df = spark_df.unionByName(spark_df_copy_with_swapped_antennas)
 
     return spark_df
 
