@@ -2496,21 +2496,25 @@ def featurize_cdr_data(
         antenna_data is not None
         and "caller_antenna_id" in spark_cdr_tagged_conversations.columns
     ):
-        antenna_features.extend([
-            get_number_of_antennas(spark_cdr_tagged_conversations),
-            get_entropy_of_antennas_per_caller(spark_cdr_tagged_conversations),
-            get_radius_of_gyration(spark_cdr_tagged_conversations, spark_antennas),
-            get_pareto_principle_antennas(
-                spark_cdr_tagged_conversations, pareto_threshold
-            ),
-            get_average_num_of_interactions_from_home_antennas(
-                spark_cdr_tagged_conversations
-            ),
-            get_international_interaction_statistics(spark_cdr_tagged_conversations),
-            get_caller_counts_per_region(
-                spark_cdr_tagged_conversations, spark_antennas
-            ),
-        ])
+        antenna_features.extend(
+            [
+                get_number_of_antennas(spark_cdr_tagged_conversations),
+                get_entropy_of_antennas_per_caller(spark_cdr_tagged_conversations),
+                get_radius_of_gyration(spark_cdr_tagged_conversations, spark_antennas),
+                get_pareto_principle_antennas(
+                    spark_cdr_tagged_conversations, pareto_threshold
+                ),
+                get_average_num_of_interactions_from_home_antennas(
+                    spark_cdr_tagged_conversations
+                ),
+                get_international_interaction_statistics(
+                    spark_cdr_tagged_conversations
+                ),
+                get_caller_counts_per_region(
+                    spark_cdr_tagged_conversations, spark_antennas
+                ),
+            ]
+        )
 
     # Merge all features into a single dataframe on caller_id
     feature_dfs.extend(antenna_features)
