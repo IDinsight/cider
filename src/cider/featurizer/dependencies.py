@@ -461,6 +461,10 @@ def swap_caller_and_recipient(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordDataWithDay)
 
+    has_antenna_data = set(["caller_antenna_id", "recipient_antenna_id"]).issubset(
+        set(spark_df.columns)
+    )
+
     # Add a direction_of_transaction column to indicate incoming/outgoing
     spark_df = spark_df.withColumn(
         "direction_of_transaction", lit(DirectionOfTransactionEnum.OUTGOING.value)
@@ -468,11 +472,9 @@ def swap_caller_and_recipient(
 
     # Create a copy with swapped caller and recipient columns and
     # direction_of_transaction set to incoming
-    spark_df_copy = spark_df.select(
+    spark_df_copy_with_swapped_ids = spark_df.select(
         col("recipient_id").alias("caller_id"),
         col("caller_id").alias("recipient_id"),
-        col("caller_antenna_id").alias("recipient_antenna_id"),
-        col("recipient_antenna_id").alias("caller_antenna_id"),
         *[
             col(c)
             for c in spark_df.columns
@@ -480,17 +482,34 @@ def swap_caller_and_recipient(
             not in [
                 "caller_id",
                 "recipient_id",
-                "caller_antenna_id",
-                "recipient_antenna_id",
             ]
         ],
     )
-    spark_df_copy = spark_df_copy.withColumn(
-        "direction_of_transaction", lit(DirectionOfTransactionEnum.INCOMING.value)
+    if has_antenna_data:
+        spark_df_copy_with_swapped_antennas = spark_df_copy_with_swapped_ids.select(
+            col("recipient_antenna_id").alias("caller_antenna_id"),
+            col("caller_antenna_id").alias("recipient_antenna_id"),
+            *[
+                col(c)
+                for c in spark_df_copy_with_swapped_ids.columns
+                if c
+                not in [
+                    "caller_antenna_id",
+                    "recipient_antenna_id",
+                ]
+            ],
+        )
+    else:
+        spark_df_copy_with_swapped_antennas = spark_df_copy_with_swapped_ids
+
+    spark_df_copy_with_swapped_antennas = (
+        spark_df_copy_with_swapped_antennas.withColumn(
+            "direction_of_transaction", lit(DirectionOfTransactionEnum.INCOMING.value)
+        )
     )
 
     # Append the swapped dataframe to the original dataframe
-    spark_df = spark_df.unionByName(spark_df_copy)
+    spark_df = spark_df.unionByName(spark_df_copy_with_swapped_antennas)
 
     return spark_df
 
@@ -587,46 +606,54 @@ def identify_mobile_money_transaction_direction(
     # Validate input dataframe
     validate_dataframe(spark_df, MobileMoneyDataWithDay)
 
+    base_cols = ["caller_id", "recipient_id", "day", "amount", "transaction_type"]
+    have_caller_balance_info = False
+    have_recipient_balance_info = False
+    caller_select_cols = base_cols.copy()
+    recipient_select_cols = base_cols.copy()
+
+    # Check if balance information is available and add to select columns
+    if set(["caller_balance_before", "caller_balance_after"]).issubset(
+        set(spark_df.columns)
+    ):
+        caller_select_cols += ["caller_balance_before", "caller_balance_after"]
+        have_caller_balance_info = True
+
+    # Check if recipient balance information is available and add to select columns
+    if set(["recipient_balance_before", "recipient_balance_after"]).issubset(
+        set(spark_df.columns)
+    ):
+        recipient_select_cols += ["recipient_balance_before", "recipient_balance_after"]
+        have_recipient_balance_info = True
+
+    # Outgoing interactions
     outgoing_interactions = (
-        spark_df.select(
-            [
-                "caller_id",
-                "recipient_id",
-                "day",
-                "amount",
-                "caller_balance_before",
-                "caller_balance_after",
-                "transaction_type",
-            ]
-        )
+        spark_df.select(caller_select_cols)
         .withColumnRenamed("caller_id", "primary_id")
         .withColumnRenamed("recipient_id", "correspondent_id")
-        .withColumnRenamed("caller_balance_before", "balance_before")
-        .withColumnRenamed("caller_balance_after", "balance_after")
         .withColumn(
             "direction_of_transaction", lit(DirectionOfTransactionEnum.OUTGOING.value)
         )
     )
+    if have_caller_balance_info:
+        outgoing_interactions = outgoing_interactions.withColumnRenamed(
+            "caller_balance_before", "balance_before"
+        ).withColumnRenamed("caller_balance_after", "balance_after")
+
+    # Incoming interactions
     incoming_interactions = (
-        spark_df.select(
-            [
-                "caller_id",
-                "recipient_id",
-                "day",
-                "amount",
-                "recipient_balance_before",
-                "recipient_balance_after",
-                "transaction_type",
-            ]
-        )
+        spark_df.select(recipient_select_cols)
         .withColumnRenamed("recipient_id", "primary_id")
         .withColumnRenamed("caller_id", "correspondent_id")
-        .withColumnRenamed("recipient_balance_before", "balance_before")
-        .withColumnRenamed("recipient_balance_after", "balance_after")
         .withColumn(
             "direction_of_transaction", lit(DirectionOfTransactionEnum.INCOMING.value)
         )
     )
+    if have_recipient_balance_info:
+        incoming_interactions = incoming_interactions.withColumnRenamed(
+            "recipient_balance_before", "balance_before"
+        ).withColumnRenamed("recipient_balance_after", "balance_after")
+
     all_interactions = outgoing_interactions.unionByName(incoming_interactions)
 
     return all_interactions

@@ -25,7 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Annotated
 from datetime import datetime
 from enum import Enum
@@ -34,17 +34,30 @@ import numpy as np
 
 # Enums
 class CallDataRecordTransactionType(str, Enum):
+    """
+    Transaction type for call data records.
+    """
+
     TEXT = "text"
     CALL = "call"
 
 
 class TransactionScope(str, Enum):
+    """
+    Scope of the transaction for call data records:
+    international, domestic, etc.
+    """
+
     DOMESTIC = "domestic"
     INTERNATIONAL = "international"
     OTHER = "other"
 
 
 class MobileMoneyTransactionType(str, Enum):
+    """
+    Transaction type for mobile money transactions.
+    """
+
     CASHIN = "cashin"
     CASHOUT = "cashout"
     P2P = "p2p"
@@ -54,7 +67,12 @@ class MobileMoneyTransactionType(str, Enum):
 
 # Data schemas
 class CallDataRecordData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """
+    Data schema for call data records.
+    """
+
+    class Config:
+        orm_mode = True
 
     caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
     recipient_id: Annotated[
@@ -80,7 +98,12 @@ class CallDataRecordData(BaseModel):
 
 
 class AntennaData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """
+    Data schema for antenna information.
+    """
+
+    class Config:
+        orm_mode = True
 
     antenna_id: Annotated[str, Field(description="Unique identifier for the antenna")]
     tower_id: Annotated[
@@ -92,7 +115,12 @@ class AntennaData(BaseModel):
 
 
 class RechargeData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """
+    Data schema for recharge information.
+    """
+
+    class Config:
+        orm_mode = True
 
     caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
     timestamp: Annotated[datetime, Field(description="Timestamp of the recharge")]
@@ -102,7 +130,12 @@ class RechargeData(BaseModel):
 
 
 class MobileDataUsageData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """
+    Data schema for mobile data usage information.
+    """
+
+    class Config:
+        orm_mode = True
 
     caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
     timestamp: Annotated[datetime, Field(description="Timestamp of the data usage")]
@@ -110,12 +143,17 @@ class MobileDataUsageData(BaseModel):
 
 
 class MobileMoneyTransactionData(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """
+    Data schema for mobile money transactions.
+    """
+
+    class Config:
+        orm_mode = True
 
     caller_id: Annotated[str, Field(description="Unique identifier for the caller")]
     recipient_id: Annotated[
         str | None, Field(description="Unique identifier for the recipient")
-    ] = None
+    ]
     timestamp: Annotated[datetime, Field(description="Timestamp of the call")]
     transaction_type: Annotated[
         MobileMoneyTransactionType,
@@ -125,13 +163,13 @@ class MobileMoneyTransactionData(BaseModel):
         float, Field(description="Amount of the transaction in local currency")
     ]
     caller_balance_before: Annotated[
-        float,
+        float | None,
         Field(description="Caller's balance before the transaction in local currency"),
-    ]
+    ] = None
     caller_balance_after: Annotated[
-        float,
+        float | None,
         Field(description="Caller's balance after the transaction in local currency"),
-    ]
+    ] = None
     recipient_balance_before: Annotated[
         float | None,
         Field(
@@ -147,10 +185,19 @@ class MobileMoneyTransactionData(BaseModel):
 
     @model_validator(mode="after")
     def check_balance_and_recipient_info(self) -> "MobileMoneyTransactionData":
-        if self.caller_balance_after != self.caller_balance_before - self.amount:
-            raise ValueError(
-                f"Caller balance after transaction should be {self.caller_balance_before - self.amount}. Found {self.caller_balance_after} instead."
-            )
+        """
+        Check that the balance information provided in the transaction is consistent with the transaction type and amount.
+        For cashin and cashout transactions, recipient information should not be provided.
+        For other transactions, if balance information is provided, it should be consistent with the transaction amount.
+        """
+        if (
+            self.caller_balance_after is not None
+            and self.caller_balance_before is not None
+        ):
+            if self.caller_balance_after != self.caller_balance_before - self.amount:
+                raise ValueError(
+                    f"Caller balance after transaction should be {self.caller_balance_before - self.amount}. Found {self.caller_balance_after} instead."
+                )
 
         # Recipient should be None for cashin and cashout transactions
         if self.transaction_type in [
@@ -173,38 +220,23 @@ class MobileMoneyTransactionData(BaseModel):
                 )
 
         # For other transactions, recipient balances should match, if provided
-        condition_1 = (
-            self.recipient_id is None
-            and (
-                self.recipient_balance_after is None
-                or np.isnan(self.recipient_balance_after)
-            )
-            and (
-                self.recipient_balance_before is None
-                or np.isnan(self.recipient_balance_before)
-            )
+        has_balance_before = self.recipient_balance_before is not None and not np.isnan(
+            self.recipient_balance_before
         )
-        condition_2 = (
-            self.recipient_id is not None
-            and (
-                self.recipient_balance_after is not None
-                and ~np.isnan(self.recipient_balance_after)
-            )
-            and (
-                self.recipient_balance_before is not None
-                and ~np.isnan(self.recipient_balance_before)
-            )
+        has_balance_after = self.recipient_balance_after is not None and not np.isnan(
+            self.recipient_balance_after
         )
-        if not (condition_1 or condition_2):
+        if has_balance_before != has_balance_after:
             raise ValueError(
-                "If any recipient information is provided, all recipient fields must be provided."
+                "If any recipient balance information is provided, all recipient balance fields must be provided."
             )
-        if (
-            self.recipient_balance_before is not None
-            and self.recipient_balance_after is not None
-            and ~np.isnan(self.recipient_balance_before)
-            and ~np.isnan(self.recipient_balance_after)
-        ):
+        if has_balance_before and has_balance_after:
+            if self.recipient_id is None:
+                raise ValueError(
+                    "Recipient ID must be provided when recipient balance information is provided."
+                )
+            assert self.recipient_balance_before is not None
+            assert self.recipient_balance_after is not None
             if (
                 self.recipient_balance_after
                 != self.recipient_balance_before + self.amount

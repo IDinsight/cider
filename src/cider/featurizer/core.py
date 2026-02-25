@@ -27,6 +27,7 @@
 
 import pandas as pd
 import numpy as np
+from typing import List
 from pydantic import BaseModel
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (
@@ -1531,7 +1532,8 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
     logger.info("Calculating number of unique antennas per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     def _get_groupby_and_pivot_df(
         groupby_cols: list[str],
@@ -1613,7 +1615,8 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
     logger.info("Calculating entropy of antennas per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     def _get_groupby_and_pivot_df(
         groupby_cols: list[str],
@@ -1722,8 +1725,10 @@ def get_radius_of_gyration(
     logger.info("Calculating radius of gyration per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
     validate_dataframe(spark_antennas_df, AntennaDataGeometry)
+
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     # Join antennas and CDR data
     joined_df = spark_df.join(spark_antennas_df, on="caller_antenna_id", how="inner")
@@ -1834,7 +1839,9 @@ def get_pareto_principle_antennas(
     logger.info("Calculating Pareto principle antennas per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
+
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     def _get_groupby_and_pivot_df(
         groupby_cols: list[str],
@@ -1849,6 +1856,7 @@ def get_pareto_principle_antennas(
         window_3 = Window.partitionBy(*groupby_cols).orderBy("row_number")
 
         # Calculate Pareto principle antenna stats
+
         antenna_df = (
             spark_df.groupby("caller_antenna_id", *groupby_cols)
             .agg(count(lit(0)).alias("interaction_count"))
@@ -1934,7 +1942,7 @@ def get_average_num_of_interactions_from_home_antennas(
     )
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
 
     # Filter for outgoing transactions only to avoid double-counting
     # after swap_caller_and_recipient operation
@@ -2110,8 +2118,10 @@ def get_caller_counts_per_region(
     logger.info("Calculating caller counts per region")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, CallDataRecordTagged)
+    validate_dataframe(spark_df, CallDataRecordTagged, check_optional_columns=True)
     validate_dataframe(spark_antenna_df, AntennaDataGeometryWithRegion)
+
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
     # Merge CDR and antenna data by caller ID
     joined_df = spark_df.join(spark_antenna_df, on="caller_antenna_id", how="inner")
@@ -2261,7 +2271,9 @@ def get_mobile_money_balance_stats(
     logger.info("Calculating mobile money balance statistics per caller")
 
     # Validate input dataframe
-    validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+    validate_dataframe(
+        spark_df, MobileMoneyDataWithDirection, check_optional_columns=True
+    )
 
     summary_stats_cols = [
         StatsComputationMethodEnum.MEAN,
@@ -2357,7 +2369,14 @@ def preprocess_data(
         MobileMoneyTransactionData,
         RechargeData,
     ]:
-        validate_dataframe(data_dict[schema], schema, check_data_points=False)
+
+        try:
+            validate_dataframe(data_dict[schema], schema, check_data_points=False)
+        except KeyError:
+            logger.warning(
+                f"{schema.__name__} not found in data_dict. Skipping preprocessing for this schema."
+            )
+            continue
 
         logger.info(f"Preprocessing data for schema: {schema.__name__}")
         # Filter to datetime
@@ -2398,7 +2417,7 @@ def preprocess_data(
 
 def featurize_cdr_data(
     cdr_data: PandasDataFrame,
-    antenna_data: PandasDataFrame,
+    antenna_data: PandasDataFrame | None = None,
     max_wait_for_convo_in_seconds: int = 3600,
     pareto_threshold: float = 0.8,
 ) -> PandasDataFrame:
@@ -2407,7 +2426,7 @@ def featurize_cdr_data(
 
     Args:
         cdr_data: Call record data
-        antenna_data: Antenna data
+        antenna_data: Antenna data with region information for location features. If None, location features will be skipped.
         max_wait_for_convo_in_seconds: Maximum wait time between calls/texts to be considered part of the same conversation
         pareto_threshold: Threshold for Pareto principle calculations
 
@@ -2417,16 +2436,21 @@ def featurize_cdr_data(
     """
     # Validate dataframes
     validate_dataframe(cdr_data, CallDataRecordData)
-    validate_dataframe(antenna_data, AntennaData)
-    assert "region" in antenna_data.columns, "Antenna data must contain 'region' column"
+    if antenna_data is not None:
+        validate_dataframe(antenna_data, AntennaData)
+        assert (
+            "region" in antenna_data.columns
+        ), "Antenna data must contain 'region' column"
 
     spark_session = get_spark_session()
 
     # Prepare CDR data: identify daytime/weekend, tag conversations
     spark_cdr = spark_session.createDataFrame(cdr_data)
-    spark_antennas = spark_session.createDataFrame(antenna_data).withColumnRenamed(
-        "antenna_id", "caller_antenna_id"
-    )
+
+    if antenna_data is not None:
+        spark_antennas = spark_session.createDataFrame(antenna_data).withColumnRenamed(
+            "antenna_id", "caller_antenna_id"
+        )
 
     logger.info("Identifying daytime and weekend interactions")
     spark_cdr_with_daytime = identify_daytime(spark_cdr)
@@ -2445,102 +2469,57 @@ def featurize_cdr_data(
     )
 
     # Featurize CDR data
-    spark_cdr_active_days = get_active_days(spark_cdr_tagged_conversations)
-    spark_cdr_number_of_contacts_per_caller = get_number_of_contacts_per_caller(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_call_duration_stats = get_call_duration_stats(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_nocturnal_interactions = get_percentage_of_nocturnal_interactions(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_percentage_of_initiated_interactions = (
-        get_percentage_of_initiated_conversations(spark_cdr_tagged_conversations)
-    )
-    spark_percentage_initiated_calls = get_percentage_of_initiated_calls(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_response_time_delay_stats = get_text_response_time_delay_stats(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_text_response_rate = get_text_response_rate(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_entropy_of_interactions = get_entropy_of_interactions_per_caller(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_outgoing_interactions_fraction = get_outgoing_interaction_fraction_stats(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_interaction_stats_per_caller = get_interaction_stats_per_caller(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_inter_event_time_stats = get_inter_event_time_stats(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_pareto_interaction_stats = get_pareto_principle_interaction_stats(
-        spark_cdr_tagged_conversations, pareto_threshold
-    )
-    spark_cdr_pareto_call_duration_stats = get_pareto_principle_call_duration_stats(
-        spark_cdr_tagged_conversations, pareto_threshold
-    )
-    spark_cdr_number_of_transactions = get_number_of_interactions_per_user(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_number_of_antennas = get_number_of_antennas(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_entropy_of_antennas = get_entropy_of_antennas_per_caller(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_radius_of_gyration = get_radius_of_gyration(
-        spark_cdr_tagged_conversations, spark_antennas
-    )
-    spark_cdr_pareto_antennas = get_pareto_principle_antennas(
-        spark_cdr_tagged_conversations, pareto_threshold
-    )
-    spark_cdr_home_antenna_interactions = (
-        get_average_num_of_interactions_from_home_antennas(
-            spark_cdr_tagged_conversations
-        )
-    )
-    spark_cdr_international_stats = get_international_interaction_statistics(
-        spark_cdr_tagged_conversations
-    )
-    spark_cdr_antenna_location_features = get_caller_counts_per_region(
-        spark_cdr_tagged_conversations, spark_antennas
-    )
-
-    # Merge all features into a single dataframe on caller_id
-    feature_dfs = [
-        spark_cdr_active_days,
-        spark_cdr_number_of_contacts_per_caller,
-        spark_cdr_call_duration_stats,
-        spark_cdr_nocturnal_interactions,
-        spark_cdr_percentage_of_initiated_interactions,
-        spark_percentage_initiated_calls,
-        spark_cdr_response_time_delay_stats,
-        spark_cdr_text_response_rate,
-        spark_cdr_entropy_of_interactions,
-        spark_cdr_outgoing_interactions_fraction,
-        spark_cdr_interaction_stats_per_caller,
-        spark_cdr_inter_event_time_stats,
-        spark_cdr_pareto_interaction_stats,
-        spark_cdr_pareto_call_duration_stats,
-        spark_cdr_number_of_transactions,
-        spark_cdr_number_of_antennas,
-        spark_cdr_entropy_of_antennas,
-        spark_cdr_radius_of_gyration,
-        spark_cdr_pareto_antennas,
-        spark_cdr_home_antenna_interactions,
-        spark_cdr_international_stats,
-        spark_cdr_antenna_location_features,
+    feature_dfs: List[SparkDataFrame] = [
+        get_active_days(spark_cdr_tagged_conversations),
+        get_number_of_contacts_per_caller(spark_cdr_tagged_conversations),
+        get_call_duration_stats(spark_cdr_tagged_conversations),
+        get_percentage_of_nocturnal_interactions(spark_cdr_tagged_conversations),
+        get_percentage_of_initiated_conversations(spark_cdr_tagged_conversations),
+        get_percentage_of_initiated_calls(spark_cdr_tagged_conversations),
+        get_text_response_time_delay_stats(spark_cdr_tagged_conversations),
+        get_text_response_rate(spark_cdr_tagged_conversations),
+        get_entropy_of_interactions_per_caller(spark_cdr_tagged_conversations),
+        get_outgoing_interaction_fraction_stats(spark_cdr_tagged_conversations),
+        get_interaction_stats_per_caller(spark_cdr_tagged_conversations),
+        get_inter_event_time_stats(spark_cdr_tagged_conversations),
+        get_pareto_principle_interaction_stats(
+            spark_cdr_tagged_conversations, pareto_threshold
+        ),
+        get_pareto_principle_call_duration_stats(
+            spark_cdr_tagged_conversations, pareto_threshold
+        ),
+        get_number_of_interactions_per_user(spark_cdr_tagged_conversations),
     ]
 
+    antenna_features: List[SparkDataFrame] = []
+    if (
+        antenna_data is not None
+        and "caller_antenna_id" in spark_cdr_tagged_conversations.columns
+    ):
+        antenna_features.extend(
+            [
+                get_number_of_antennas(spark_cdr_tagged_conversations),
+                get_entropy_of_antennas_per_caller(spark_cdr_tagged_conversations),
+                get_radius_of_gyration(spark_cdr_tagged_conversations, spark_antennas),
+                get_pareto_principle_antennas(
+                    spark_cdr_tagged_conversations, pareto_threshold
+                ),
+                get_average_num_of_interactions_from_home_antennas(
+                    spark_cdr_tagged_conversations
+                ),
+                get_international_interaction_statistics(
+                    spark_cdr_tagged_conversations
+                ),
+                get_caller_counts_per_region(
+                    spark_cdr_tagged_conversations, spark_antennas
+                ),
+            ]
+        )
+
+    # Merge all features into a single dataframe on caller_id
+    feature_dfs.extend(antenna_features)
+
     feature_dfs = [df.persist() for df in feature_dfs]
-    # for df in feature_dfs:
-    #     df.count()
 
     spark_merged_df = reduce(
         lambda df1, df2: df1.join(df2, on="caller_id", how="outer"),
@@ -2595,22 +2574,21 @@ def featurize_mobile_money_data(
     spark_mobile_money_with_direction = identify_mobile_money_transaction_direction(
         spark_mobile_money_data
     )
-    spark_mobile_money_amount_stats = get_mobile_money_amount_stats(
-        spark_mobile_money_with_direction
-    )
-    spark_mobile_money_transaction_stats = get_mobile_money_transaction_stats(
-        spark_mobile_money_with_direction
-    )
-    spark_mobile_money_balance_stats = get_mobile_money_balance_stats(
-        spark_mobile_money_with_direction
-    )
+
+    feature_dfs: List[SparkDataFrame] = [
+        get_mobile_money_amount_stats(spark_mobile_money_with_direction),
+        get_mobile_money_transaction_stats(spark_mobile_money_with_direction),
+    ]
+
+    if set(["balance_before", "balance_after"]).issubset(
+        set(spark_mobile_money_with_direction.columns)
+    ):
+        spark_mobile_money_balance_stats = get_mobile_money_balance_stats(
+            spark_mobile_money_with_direction
+        )
+        feature_dfs.append(spark_mobile_money_balance_stats)
 
     # Merge all features into a single dataframe on primary_id
-    feature_dfs = [
-        spark_mobile_money_amount_stats,
-        spark_mobile_money_transaction_stats,
-        spark_mobile_money_balance_stats,
-    ]
     spark_merged_df = reduce(
         lambda df1, df2: df1.join(df2, on="primary_id", how="outer"),
         feature_dfs,
@@ -2661,7 +2639,7 @@ def featurize_all_data(
     logger.info("Featurizing CDR data")
     cdr_features_df = featurize_cdr_data(
         preprocessed_data[CallDataRecordData],
-        preprocessed_data[AntennaData],
+        preprocessed_data[AntennaData] if AntennaData in preprocessed_data else None,
         max_wait_for_convo_in_seconds,
         pareto_threshold,
     )

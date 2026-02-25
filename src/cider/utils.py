@@ -89,6 +89,7 @@ def validate_dataframe(
     df: SparkDataFrame | PandasDataFrame,
     required_schema: type[BaseModel],
     check_data_points: bool = False,
+    check_optional_columns: bool = False,
 ) -> None:
     """
     Validate that the dataframe has the required schema.
@@ -97,14 +98,23 @@ def validate_dataframe(
         df: Spark or Pandas dataframe to validate
         required_schema: Pydantic BaseModel schema that the dataframe must conform to
         check_data_points: Whether to check each of the rows in the dataframe, in addition to the column names. Default is False.
+        check_optional_columns: Whether to check optional columns in the dataframe. Default is False.
 
     Raises:
         ValueError: If any of the required columns are missing from the dataframe
     """
+
     df_columns = set(df.columns)
-    required_columns = set(
-        [k for k, field in required_schema.model_fields.items() if field.is_required()]
-    )
+    if check_optional_columns:
+        required_columns = set([k for k in required_schema.model_fields.keys()])
+    else:
+        required_columns = set(
+            [
+                k
+                for k, field in required_schema.model_fields.items()
+                if field.is_required()
+            ]
+        )
     missing_columns = required_columns - df_columns
     if missing_columns:
         raise ValueError(
@@ -146,14 +156,13 @@ def _get_column_types(
         origin = get_origin(value.annotation)
         if origin == types.UnionType:
             args = get_args(value.annotation)
-            if keep_optional_columns and type(None) in args:
+            if schema.model_fields[key].is_required():
                 # Pick the first argument that is not NoneType
                 value_type = next(arg for arg in args if arg is not type(None))
-            elif not keep_optional_columns and type(None) in args:
-                continue  # keep_optional_columns is False, skip this column
+            elif not schema.model_fields[key].is_required() and keep_optional_columns:
+                value_type = next(arg for arg in args if arg is not type(None))
             else:
-                # If Union types are not none, simply take the first type
-                value_type = next(arg for arg in get_args(value))
+                continue
         else:
             value_type = value.annotation
 
@@ -230,7 +239,10 @@ def generate_synthetic_data(
 
 
 def correct_generated_synthetic_cdr_data(
-    cdr_df: PandasDataFrame, num_unique_antenna_ids: int, random_seed: int = 42
+    cdr_df: PandasDataFrame,
+    num_unique_antenna_ids: int,
+    random_seed: int = 42,
+    keep_optional_columns: bool = False,
 ) -> PandasDataFrame:
     """
     Correct synthetic CDR data for testing purposes.
@@ -239,11 +251,15 @@ def correct_generated_synthetic_cdr_data(
         cdr_df: Pandas DataFrame with synthetic CDR data
         num_unique_antenna_ids: Number of unique antenna IDs to use in the corrected data
         random_seed: Random seed for reproducibility
+        keep_optional_columns: Whether to check optional columns in the dataframe. Default is False.
     Returns:
         Pandas DataFrame with corrected synthetic CDR data
     """
     validate_dataframe(
-        cdr_df, required_schema=CallDataRecordData, check_data_points=True
+        cdr_df,
+        required_schema=CallDataRecordData,
+        check_data_points=True,
+        check_optional_columns=keep_optional_columns,
     )
 
     # Ensure that duration for text data is zero
@@ -289,12 +305,14 @@ def generate_antenna_data(num_antennas: int, random_seed: int = 42) -> PandasDat
 
 def correct_generated_synthetic_mobile_money_transaction_data(
     mobile_money_df: PandasDataFrame,
+    keep_optional_columns: bool = False,
 ) -> PandasDataFrame:
     """
     Correct synthetic Mobile Money Transaction data for testing purposes.
 
     Args:
         mobile_money_df: Pandas DataFrame with synthetic Mobile Money Transaction data
+        keep_optional_columns: Whether to check optional columns in the dataframe. Default is False.
 
     Returns:
         Pandas DataFrame with corrected synthetic Mobile Money Transaction data
@@ -303,6 +321,7 @@ def correct_generated_synthetic_mobile_money_transaction_data(
         mobile_money_df,
         required_schema=MobileMoneyTransactionData,
         check_data_points=False,
+        check_optional_columns=keep_optional_columns,
     )
 
     # Ensure cashin transactions have negative amounts
@@ -318,21 +337,25 @@ def correct_generated_synthetic_mobile_money_transaction_data(
     )
 
     # Ensure caller_balance_after matches caller_balance_before - amount
-    mobile_money_df["caller_balance_after"] = (
-        mobile_money_df["caller_balance_before"] - mobile_money_df["amount"]
-    )
-
-    if "recipient_id" in mobile_money_df.columns:
-
-        # Ensure that recipient_id, recipient_balance_before, and recipient_balance_after are
-        # None for cashin and cashout transactions
-        mask = mobile_money_df["transaction_type"].isin(
-            [
-                MobileMoneyTransactionType.CASHIN.value,
-                MobileMoneyTransactionType.CASHOUT.value,
-            ]
+    if set(["caller_balance_before", "caller_balance_after"]).issubset(
+        set(mobile_money_df.columns)
+    ):
+        mobile_money_df["caller_balance_after"] = (
+            mobile_money_df["caller_balance_before"] - mobile_money_df["amount"]
         )
-        mobile_money_df.loc[mask, "recipient_id"] = None
+
+    # Ensure that recipient_id, recipient_balance_before, and recipient_balance_after are
+    # None for cashin and cashout transactions
+    mask = mobile_money_df["transaction_type"].isin(
+        [
+            MobileMoneyTransactionType.CASHIN.value,
+            MobileMoneyTransactionType.CASHOUT.value,
+        ]
+    )
+    mobile_money_df.loc[mask, "recipient_id"] = None
+    if set(["recipient_balance_before", "recipient_balance_after"]).issubset(
+        set(mobile_money_df.columns)
+    ):
         mobile_money_df.loc[mask, "recipient_balance_before"] = None
         mobile_money_df.loc[mask, "recipient_balance_after"] = None
 
@@ -409,6 +432,7 @@ def generate_all_synthetic_data(
     num_data_points: int,
     num_unique_antenna_ids: int,
     random_seed: int = 42,
+    keep_optional_columns: bool = True,
 ) -> dict[type[BaseModel], PandasDataFrame]:
     """
     Generate synthetic data for all schemas for testing purposes.
@@ -416,6 +440,7 @@ def generate_all_synthetic_data(
         num_data_points: Number of synthetic data points to generate for each schema
         num_unique_antenna_ids: Number of unique antenna IDs to use in the CDR data
         random_seed: Random seed for reproducibility
+        keep_optional_columns: Whether to include optional fields in the generated data
     Returns:
         Dictionary mapping schema names to Pandas DataFrames with synthetic data
     """
@@ -428,7 +453,7 @@ def generate_all_synthetic_data(
         schema=CallDataRecordData,
         num_data_points=num_data_points,
         random_seed=random_seed,
-        keep_optional_columns=True,
+        keep_optional_columns=keep_optional_columns,
     )
 
     logger.info("Correcting synthetic call data record data")
@@ -436,6 +461,7 @@ def generate_all_synthetic_data(
         synthetic_cdr_df,
         num_unique_antenna_ids,
         random_seed=random_seed,
+        keep_optional_columns=keep_optional_columns,
     )
 
     # Generate synthetic Mobile Money Transaction data
@@ -444,13 +470,14 @@ def generate_all_synthetic_data(
         schema=MobileMoneyTransactionData,
         num_data_points=num_data_points,
         random_seed=random_seed,
-        keep_optional_columns=True,
+        keep_optional_columns=keep_optional_columns,
     )
 
     logger.info("Correcting synthetic mobile money transaction data")
     synthetic_data[MobileMoneyTransactionData] = (
         correct_generated_synthetic_mobile_money_transaction_data(
-            synthetic_mobile_money_df
+            synthetic_mobile_money_df,
+            keep_optional_columns=keep_optional_columns,
         )
     )
 
@@ -466,7 +493,7 @@ def generate_all_synthetic_data(
         schema=RechargeData,
         num_data_points=num_data_points,
         random_seed=random_seed,
-        keep_optional_columns=True,
+        keep_optional_columns=keep_optional_columns,
     )
 
     # Generate synthetic Mobile Data Usage data
@@ -475,7 +502,7 @@ def generate_all_synthetic_data(
         schema=MobileDataUsageData,
         num_data_points=num_data_points,
         random_seed=random_seed,
-        keep_optional_columns=True,
+        keep_optional_columns=keep_optional_columns,
     )
 
     return synthetic_data
