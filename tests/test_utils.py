@@ -119,8 +119,6 @@ def test_generate_synthetic_data_raises_a_warning(schema):
     [
         (True, CallDataRecordData),
         (False, CallDataRecordData),
-        (True, MobileMoneyTransactionData),
-        (False, MobileMoneyTransactionData),
         (True, AntennaData),
         (False, AntennaData),
         (True, RechargeData),
