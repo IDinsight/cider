@@ -102,34 +102,6 @@ def test_validate_dataframe(spark):
 
 
 @pytest.mark.parametrize(
-    "schema,",
-    [
-        CallDataRecordData,
-        AntennaData,
-        RechargeData,
-        MobileDataUsageData,
-    ],
-)
-def test_generate_synthetic_data(schema):
-
-    num_data_points = 100
-    synthetic_df = generate_synthetic_data(
-        schema=schema, num_data_points=num_data_points
-    )
-
-    # Validate the synthetic DataFrame against the schema and num datapoints
-    assert len(synthetic_df) == num_data_points
-    assert (
-        validate_dataframe(
-            synthetic_df,
-            required_schema=schema,
-            check_data_points=True,
-        )
-        is None
-    )
-
-
-@pytest.mark.parametrize(
     "schema",
     [
         CallDataRecordData,
@@ -142,17 +114,40 @@ def test_generate_synthetic_data_raises_a_warning(schema):
         generate_synthetic_data(schema=schema, num_data_points=100)
 
 
-def test_generate_synthetic_data_with_optional_columns():
+@pytest.mark.parametrize(
+    "keep_optional_columns,schema",
+    [
+        (True, CallDataRecordData),
+        (False, CallDataRecordData),
+        (True, MobileMoneyTransactionData),
+        (False, MobileMoneyTransactionData),
+        (True, AntennaData),
+        (False, AntennaData),
+        (True, RechargeData),
+        (False, RechargeData),
+        (True, MobileDataUsageData),
+        (False, MobileDataUsageData),
+    ],
+)
+def test_generate_synthetic_data(keep_optional_columns, schema):
     num_data_points = 100
     synthetic_df = generate_synthetic_data(
-        schema=CallDataRecordData,
+        schema=schema,
         num_data_points=num_data_points,
-        keep_optional_columns=True,
+        keep_optional_columns=keep_optional_columns,
     )
 
     # Validate the synthetic DataFrame against the schema and num datapoints
     assert len(synthetic_df) == num_data_points
-    assert set(synthetic_df.columns) == set(CallDataRecordData.model_fields.keys())
+    assert (
+        validate_dataframe(
+            synthetic_df,
+            required_schema=schema,
+            check_data_points=True,
+            check_optional_columns=keep_optional_columns,
+        )
+        is None
+    )
 
 
 def test_generate_antenna_data():
@@ -187,7 +182,8 @@ def test_correct_generated_synthetic_mobile_money_transaction_data(
 
     corrected_mobile_money_df = (
         correct_generated_synthetic_mobile_money_transaction_data(
-            synthetic_mobile_money_df
+            synthetic_mobile_money_df,
+            keep_optional_columns=keep_optional_columns,
         )
     )
 
@@ -198,29 +194,36 @@ def test_correct_generated_synthetic_mobile_money_transaction_data(
             corrected_mobile_money_df,
             required_schema=MobileMoneyTransactionData,
             check_data_points=True,
+            check_optional_columns=keep_optional_columns,
         )
         is None
     )
 
 
-def test_correct_generated_synthetic_cdr_data():
+@pytest.mark.parametrize(
+    "keep_optional_columns",
+    [True, False],
+)
+def test_correct_generated_synthetic_cdr_data(keep_optional_columns):
     num_data_points = 100
     num_unique_antenna_ids = 5
     synthetic_cdr_df = generate_synthetic_data(
         schema=CallDataRecordData,
         num_data_points=num_data_points,
-        keep_optional_columns=True,
+        keep_optional_columns=keep_optional_columns,
     )
 
     corrected_cdr_df = correct_generated_synthetic_cdr_data(
         synthetic_cdr_df,
         num_unique_antenna_ids,
+        keep_optional_columns=keep_optional_columns,
     )
 
     # Validate the corrected DataFrame against the CallDataRecordData schema and num datapoints
     assert len(corrected_cdr_df) == num_data_points
     assert corrected_cdr_df.caller_antenna_id.nunique() <= num_unique_antenna_ids
-    assert corrected_cdr_df.recipient_antenna_id.nunique() <= num_unique_antenna_ids
+    if keep_optional_columns:
+        assert corrected_cdr_df.recipient_antenna_id.nunique() <= num_unique_antenna_ids
     assert np.all(
         corrected_cdr_df.loc[corrected_cdr_df.transaction_type == "text", "duration"]
         == 0
@@ -230,6 +233,7 @@ def test_correct_generated_synthetic_cdr_data():
             corrected_cdr_df,
             required_schema=CallDataRecordData,
             check_data_points=True,
+            check_optional_columns=keep_optional_columns,
         )
         is None
     )

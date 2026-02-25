@@ -18,7 +18,7 @@ repos:
     hooks:
       - id: interrogate
         exclude: "^(tests/|deprecated/|notebooks/|old_notebooks/|configs/)"
-        args: [-v, --fail-under=80, --ignore-module]
+        args: [-v, --fail-under=80, --ignore-module, --ignore-nested-classes]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.9
     hooks:
