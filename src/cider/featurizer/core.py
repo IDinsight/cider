@@ -2385,6 +2385,10 @@ def preprocess_data(
             pd.to_datetime(filter_start_date),
             pd.to_datetime(filter_end_date),
         )
+        if len(filtered_df) == 0:
+            logger.info(
+                f"No data points found for {schema.__name__} after filtering by dates."
+            )
         filtered_df_with_day = add_day_column(filtered_df)
 
         if schema == CallDataRecordData:
