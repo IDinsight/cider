@@ -405,7 +405,7 @@ def precision_recall_at_k(y_true, y_pred, k, tail: Literal["upper", "lower"]):
         dict with precision and recall at k% for specified tail
     """
     data = pd.DataFrame({"y_true": y_true, "y_pred": y_pred})
-    data
+
     if tail == "upper":
         threshold_pred = np.percentile(y_pred, 100 - k)
         threshold_true = np.percentile(y_true, 100 - k)
