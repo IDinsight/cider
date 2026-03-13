@@ -4,7 +4,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
-from typing import Literal
+from typing import Literal, Optional, List
 from pydantic import BaseModel
 from scipy.stats import spearmanr
 from sklearn.linear_model import Lasso, ElasticNet
@@ -32,7 +32,9 @@ Data descriptions
 """
 
 
-def describe_data(data, exclude_id_col=["caller_id"]):
+def describe_data(
+    data: pd.DataFrame, exclude_id_col: Optional[List[str]] = None
+) -> pd.DataFrame:
     """
     Descriptive statistics for each column in dataframe except for columns specified in exclude_id_col.
     Also includes a completeness column with count of non-null values for each feature.
@@ -63,7 +65,7 @@ def describe_data(data, exclude_id_col=["caller_id"]):
 def describe_features(features: dict[str, pd.DataFrame]) -> pd.DataFrame:
     description_list = []
     for feat in features:
-        description = describe_data(features[feat], exclude_id_col="caller_id")
+        description = describe_data(features[feat], exclude_id_col=["caller_id"])
         description["source"] = feat
         description_list.append(description)
     description_df = pd.concat(description_list, ignore_index=True)
@@ -77,15 +79,15 @@ Visualizations
 
 def generate_boxplots(
     data: pd.DataFrame,
-    features: list[str],
-    groupby: str | None = None,
+    features: List[str],
+    groupby: Optional[str] = None,
     orient: Literal["v", "h"] = "v",
     showfliers: bool = True,
     ncol: int = 2,
-    nrow: int | None = None,
-    title: str | None = None,
+    nrow: Optional[int] = None,
+    title: Optional[str] = None,
     single_figsize: tuple = (4, 3),
-    save_path: str | None = None,
+    save_path: Optional[str] = None,
 ):
     """
     Generate boxplots for specified feature columns in the data, grouped by the groupby column.
@@ -130,11 +132,11 @@ def scatterplots(
     features: list[str],
     label: str,
     ncol: int = 2,
-    nrow: int | None = None,
-    title: str | None = None,
+    nrow: Optional[int] = None,
+    title: Optional[str] = None,
     single_figsize: tuple = (4, 3),
     label_axis: Literal["x", "y"] = "y",
-    save_path: str | None = None,
+    save_path: Optional[str] = None,
 ):
     """
     Generate scatterplots for specified feature columns in the data, grouped by the groupby column.
@@ -322,7 +324,7 @@ def process_data_for_modelling(
     X,
     drop_zero_variance=False,
     null_max_threshold=None,
-    fillna_method: Literal["median", "mean", "zero"] | None = None,
+    fillna_method: Optional[Literal["median", "mean", "zero"]] = None,
     scale=False,
 ):
     """
@@ -448,7 +450,7 @@ def evaluation_metrics(
     mean_abs_perc_error = np.mean(np.abs(model.predict(X_test) - y_test) / y_test)
     spearman_rho, spearman_pvalue = spearmanr(model.predict(X_test), y_test)
     precision_recall_k = precision_recall_at_k(
-        model.predict(X_test), y_test, k=percentile_k, tail=precision_recall_tail
+        y_test, model.predict(X_test), k=percentile_k, tail=precision_recall_tail
     )
     precision_k = precision_recall_k[
         f"precision_{precision_recall_tail}_{percentile_k}"
