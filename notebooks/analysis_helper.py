@@ -1,31 +1,25 @@
 import pandas as pd
 import numpy as np
-import geopandas as gpd
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
+from enum import Enum
 from typing import Literal, Optional, List
-from pydantic import BaseModel
 from scipy.stats import spearmanr
 from sklearn.linear_model import Lasso, ElasticNet
 from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import KFold
 
-from cider.schemas import (
-    AntennaData,
-    CallDataRecordData,
-    MobileDataUsageData,
-    MobileMoneyTransactionData,
-    RechargeData,
-)
 
-from cider.featurizer.core import (
-    preprocess_data,
-    featurize_cdr_data,
-    featurize_mobile_money_data,
-    featurize_mobile_data_usage_data,
-    featurize_recharge_data,
-)
+MATPLOTLIB_STYLE_PATH = "../src/cider/matplotlibrc"
+
+
+class FillnaMethod(Enum):
+    MEDIAN = "median"
+    MEAN = "mean"
+    ZERO = "zero"
+
 
 """
 Data descriptions
@@ -105,26 +99,34 @@ def generate_boxplots(
     """
     if nrow is None:
         nrow = int(np.ceil(len(features) / ncol))
-    fig, axes = plt.subplots(
-        nrow, ncol, figsize=(single_figsize[0] * ncol, single_figsize[1] * nrow)
-    )
-    axes = np.array(axes).flatten()
-    for i, feat in enumerate(features):
-        if orient == "v":
-            sns.boxplot(data=data, y=feat, x=groupby, showfliers=showfliers, ax=axes[i])
-        elif orient == "h":
-            sns.boxplot(data=data, x=feat, y=groupby, showfliers=showfliers, ax=axes[i])
-    if title is not None:
-        plt.suptitle(title)
 
-    # hide unused subplots
-    for ax in axes[len(features) :]:
-        ax.set_visible(False)
+    with mpl.rc_context(mpl.rc_params_from_file(MATPLOTLIB_STYLE_PATH)):
+        fig, axes = plt.subplots(
+            nrow, ncol, figsize=(single_figsize[0] * ncol, single_figsize[1] * nrow)
+        )
+        axes = np.array(axes).flatten()
+        for i, feat in enumerate(features):
+            if orient == "v":
+                sns.boxplot(
+                    data=data, y=feat, x=groupby, showfliers=showfliers, ax=axes[i]
+                )
+            elif orient == "h":
+                sns.boxplot(
+                    data=data, x=feat, y=groupby, showfliers=showfliers, ax=axes[i]
+                )
+        if title is not None:
+            plt.suptitle(title)
 
-    plt.tight_layout()
+        # hide unused subplots
+        for ax in axes[len(features) :]:
+            ax.set_visible(False)
 
-    if save_path is not None:
-        plt.savefig(save_path)
+        plt.tight_layout()
+
+        if save_path is not None:
+            plt.savefig(save_path)
+
+        plt.show()
 
 
 def scatterplots(
@@ -155,32 +157,33 @@ def scatterplots(
     if nrow is None:
         nrow = int(np.ceil(len(features) / ncol))
 
-    fig, axes = plt.subplots(
-        nrow, ncol, figsize=(single_figsize[0] * ncol, single_figsize[1] * nrow)
-    )
-    axes = np.array(axes).flatten()
-    for i, feat in enumerate(features):
-        if label_axis == "x":
-            sns.scatterplot(data=data, x=label, y=feat, ax=axes[i])
-        elif label_axis == "y":
-            sns.scatterplot(data=data, x=feat, y=label, ax=axes[i])
-    if title is not None:
-        fig.suptitle(title)
+    with mpl.rc_context(mpl.rc_params_from_file(MATPLOTLIB_STYLE_PATH)):
+        fig, axes = plt.subplots(
+            nrow, ncol, figsize=(single_figsize[0] * ncol, single_figsize[1] * nrow)
+        )
+        axes = np.array(axes).flatten()
+        for i, feat in enumerate(features):
+            if label_axis == "x":
+                sns.scatterplot(data=data, x=label, y=feat, ax=axes[i])
+            elif label_axis == "y":
+                sns.scatterplot(data=data, x=feat, y=label, ax=axes[i])
+        if title is not None:
+            fig.suptitle(title)
 
-    # hide unused subplots
-    for ax in axes[len(features) :]:
-        ax.set_visible(False)
+        # hide unused subplots
+        for ax in axes[len(features) :]:
+            ax.set_visible(False)
 
-    plt.tight_layout()
+        plt.tight_layout()
 
-    if save_path is not None:
-        plt.savefig(save_path)
+        if save_path is not None:
+            plt.savefig(save_path)
 
-    plt.show()
+        plt.show()
 
 
 """
-Processing data and running featurization with CIDER
+Processing raw data
 """
 
 
@@ -208,112 +211,6 @@ def process_raw_data(column_map: dict, df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def run_preprocessing(
-    data: dict[type[BaseModel], pd.DataFrame],
-    filter_start_date: str,
-    filter_end_date: str,
-    spammer_threshold: float,
-    outlier_day_z_score_threshold: float,
-    keep_optional_columns: bool,
-    shapefile_gdf: gpd.GeoDataFrame = None,
-) -> dict[type[BaseModel], pd.DataFrame]:
-    """
-    Run CIDER's preprocessing steps for data input.
-    Process AntennaData to merge with geographic features from shapefile_gdf if keep_optional_columns is True.
-    """
-    # Preprocess data: filtering, spammer removal, outlier day removal
-    preprocessed_data = preprocess_data(
-        data_dict=data,
-        filter_start_date=filter_start_date,
-        filter_end_date=filter_end_date,
-        spammer_threshold=spammer_threshold,
-        outlier_day_z_score_threshold=outlier_day_z_score_threshold,
-    )
-
-    if keep_optional_columns:
-        logging.info(
-            "Proceeding with processing antenna data since optional columns were included in synthetic data"
-        )
-        if shapefile_gdf is None:
-            raise ValueError(
-                "Geographic features cannot be merged since no shapefile_gdf geodataframe was provided."
-            )
-        # Prepare antenna_data
-        antenna_gdf = gpd.GeoDataFrame(
-            data[AntennaData],
-            geometry=gpd.points_from_xy(
-                x=data[AntennaData]["longitude"], y=data[AntennaData]["latitude"]
-            ),
-        ).set_crs(epsg=4326)
-        antennas_merged_shp = gpd.sjoin(
-            antenna_gdf, shapefile_gdf, how="left", predicate="within"
-        )[["antenna_id", "region"]]
-        antennas_merged_shp.region.fillna("Unknown", inplace=True)
-        antennas_df = antennas_merged_shp.merge(data[AntennaData], on="antenna_id")
-
-        preprocessed_data[AntennaData] = antennas_df
-
-    return preprocessed_data
-
-
-def run_featurization(
-    preprocessed_data: dict[type[BaseModel], pd.DataFrame],
-    max_wait_for_convo_in_seconds: int,
-    pareto_threshold: float,
-) -> pd.DataFrame:
-    """
-    Runs featurization for datasets available, collects them in a dictionary.
-    """
-    features = {}
-    if CallDataRecordData in preprocessed_data:
-        logging.info("Featurizing CDR data")
-        cdr_features_df = featurize_cdr_data(
-            preprocessed_data[CallDataRecordData],
-            (
-                preprocessed_data[AntennaData]
-                if AntennaData in preprocessed_data
-                else None
-            ),
-            max_wait_for_convo_in_seconds,
-            pareto_threshold,
-        )
-        features["cdr"] = cdr_features_df
-
-    if MobileDataUsageData in preprocessed_data:
-        logging.info("Featurizing mobile data usage data")
-        mobile_data_features_df = featurize_mobile_data_usage_data(
-            preprocessed_data[MobileDataUsageData]
-        )
-        features["mobile_data_usage"] = mobile_data_features_df
-
-    if MobileMoneyTransactionData in preprocessed_data:
-        logging.info("Featurizing mobile money data")
-        mobile_money_features_df = featurize_mobile_money_data(
-            preprocessed_data[MobileMoneyTransactionData]
-        )
-        features["mobile_money_transaction"] = mobile_money_features_df
-
-    if RechargeData in preprocessed_data:
-        logging.info("Featurizing recharge data")
-        recharge_features_df = featurize_recharge_data(preprocessed_data[RechargeData])
-        features["recharge"] = recharge_features_df
-
-    # # Merge all features into a single dataframe on caller_id
-    # logger.info("Merging all features into a single dataframe")
-    # feature_dfs = [
-    #     cdr_features_df,
-    #     mobile_data_features_df,
-    #     mobile_money_features_df,
-    #     recharge_features_df,
-    # ]
-    # merged_df = reduce(
-    #     lambda df1, df2: pd.merge(df1, df2, on="caller_id", how="inner"),
-    #     feature_dfs,
-    # )
-
-    return features
-
-
 """
 Preprocessing data for modelling, running k-fold cross validation, and evaluating model performance
 """
@@ -324,7 +221,7 @@ def process_data_for_modelling(
     X,
     drop_zero_variance=False,
     null_max_threshold=None,
-    fillna_method: Optional[Literal["median", "mean", "zero"]] = None,
+    fillna_method: Optional[FillnaMethod] = None,
     scale=False,
 ):
     """
@@ -372,16 +269,19 @@ def process_data_for_modelling(
             X = X[keep_features]
 
     # 4. Impute null values according to method specified in fillna_method argument
-    if fillna_method == "median":
-        X = X.apply(
-            lambda col: col.fillna(col.median()), axis=0
-        )  # impute remaining null values with median
-    elif fillna_method == "mean":
-        X = X.apply(
-            lambda col: col.fillna(col.mean()), axis=0
-        )  # impute remaining null values with mean
-    elif fillna_method == "zero":
-        X = X.fillna(0)  # impute remaining null values with zero
+    match fillna_method:
+        case FillnaMethod.MEDIAN:
+            X = X.apply(
+                lambda col: col.fillna(col.median()), axis=0
+            )  # impute remaining null values with median
+        case FillnaMethod.MEAN:
+            X = X.apply(
+                lambda col: col.fillna(col.mean()), axis=0
+            )  # impute remaining null values with mean
+        case FillnaMethod.ZERO:
+            X = X.fillna(0)  # impute remaining null values with zero
+        case None:
+            pass
 
     # 5. Scale features
     if scale:
@@ -514,7 +414,7 @@ def run_kfold(
         f"recall_{precision_recall_tail}_{percentile_k}": [],
     }
 
-    k_eval_means = {}
+    k_eval_metrics = {}
     num_of_features_selected = []
     features_selected_list = []
     model_coef_list = []
@@ -554,15 +454,17 @@ def run_kfold(
             test_k_eval_dict[i].append(test_eval_dict[i])
 
     for x in train_k_eval_dict:
-        k_eval_means["mean_train_" + x] = np.mean(train_k_eval_dict[x], axis=0)
+        k_eval_metrics["mean_train_" + x] = np.mean(train_k_eval_dict[x], axis=0)
+        k_eval_metrics["std_train_" + x] = np.std(train_k_eval_dict[x], axis=0)
     for x in test_k_eval_dict:
-        k_eval_means["mean_test_" + x] = np.mean(test_k_eval_dict[x], axis=0)
-    k_eval_means["mean_num_of_features_selected"] = np.mean(num_of_features_selected)
+        k_eval_metrics["mean_test_" + x] = np.mean(test_k_eval_dict[x], axis=0)
+        k_eval_metrics["std_test_" + x] = np.std(test_k_eval_dict[x], axis=0)
+    k_eval_metrics["mean_num_of_features_selected"] = np.mean(num_of_features_selected)
 
     return {
         "train": train_k_eval_dict,
         "test": test_k_eval_dict,
-        "mean": k_eval_means,
+        "eval_metrics": k_eval_metrics,
         "num_of_features": num_of_features_selected,
         "features_selected": features_selected_list,
         "model_coef": model_coef_list,
@@ -580,28 +482,7 @@ def kfold_performance_across_alphas(
     Runs k-fold cross validation for different alpha options for Lasso or ElasticNet regression.
     Collects evaluation metrics for each iteration.
     """
-    kfold_results_df = pd.DataFrame(
-        columns=[
-            "alpha",
-            "mean_train_r_squared",
-            "mean_train_adj_r_squared",
-            "mean_train_mean_squared_error",
-            "mean_train_mean_abs_perc_error",
-            "mean_train_precision_lower_50",
-            "mean_train_recall_lower_50",
-            "mean_test_r_squared",
-            "mean_test_adj_r_squared",
-            "mean_test_mean_squared_error",
-            "mean_test_mean_abs_perc_error",
-            "mean_test_spearman_rho",
-            "mean_test_spearman_pvalue",
-            "mean_test_precision_lower_50",
-            "mean_test_recall_lower_50",
-            "mean_num_of_features_selected",
-            "features_selected",
-            "model_coef",
-        ]
-    )
+    rows = []
     for alpha in alpha_options:
         if model_type == "lasso":
             model = Lasso(alpha=alpha)
@@ -610,9 +491,9 @@ def kfold_performance_across_alphas(
         kfold_results = run_kfold(
             X, np.array(y), k_fold=5, model=model, random_state=100, features=features
         )
-        mean_results = kfold_results["mean"]
+        mean_results = kfold_results["eval_metrics"]
         mean_results["alpha"] = alpha
         mean_results["features_selected"] = kfold_results["features_selected"]
         mean_results["model_coef"] = kfold_results["model_coef"]
-        kfold_results_df.loc[len(kfold_results_df)] = mean_results
-    return kfold_results_df
+        rows.append(mean_results)
+    return pd.DataFrame(rows)

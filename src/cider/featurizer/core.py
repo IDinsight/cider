@@ -28,6 +28,7 @@
 import pandas as pd
 import numpy as np
 from typing import List
+import geopandas as gpd
 from pydantic import BaseModel
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (
@@ -2345,6 +2346,8 @@ def preprocess_data(
     filter_end_date: datetime,
     spammer_threshold: float = 1.75,
     outlier_day_z_score_threshold: float = 2.0,
+    keep_optional_columns: bool = True,
+    shapefile_gdf: gpd.GeoDataFrame | None = None,
 ) -> SparkDataFrame:
     """
     Preprocess all data before featurizing
@@ -2355,6 +2358,7 @@ def preprocess_data(
         filter_end_date: End date for filtering data
         spammer_threshold: Threshold for number of calls for identifying spammers
         outlier_day_z_score_threshold: z-score threshold for transactions, to identify days with unusual activity
+        keep_optional_columns: Whether to process optional columns
     Returns:
         df: Dataframe with full set of features columns
     """
@@ -2415,6 +2419,30 @@ def preprocess_data(
         ]
 
         preprocessed_data[schema] = filtered_no_outlier_days_df
+
+    if keep_optional_columns:
+        logger.info(
+            "Proceeding with processing antenna data since optional columns were included in data."
+        )
+        if shapefile_gdf is None:
+            raise ValueError(
+                "Geographic features cannot be merged since no shapefile_gdf geodataframe was provided."
+            )
+        # Prepare antenna_data
+        antenna_gdf = gpd.GeoDataFrame(
+            data_dict[AntennaData],
+            geometry=gpd.points_from_xy(
+                x=data_dict[AntennaData]["longitude"],
+                y=data_dict[AntennaData]["latitude"],
+            ),
+        ).set_crs(epsg=4326)
+        antennas_merged_shp = gpd.sjoin(
+            antenna_gdf, shapefile_gdf, how="left", predicate="within"
+        )[["antenna_id", "region"]]
+        antennas_merged_shp["region"] = antennas_merged_shp["region"].fillna("Unknown")
+        antennas_df = antennas_merged_shp.merge(data_dict[AntennaData], on="antenna_id")
+
+        preprocessed_data[AntennaData] = antennas_df
 
     return preprocessed_data
 
@@ -2628,7 +2656,7 @@ def featurize_all_data(
     preprocessed_data: dict[type[BaseModel], PandasDataFrame],
     max_wait_for_convo_in_seconds: int = 3600,
     pareto_threshold: float = 0.8,
-) -> PandasDataFrame:
+) -> dict[type[BaseModel], PandasDataFrame]:
     """
     Featurize all preprocessed data
 
@@ -2638,40 +2666,40 @@ def featurize_all_data(
         pareto_threshold: Threshold for Pareto principle calculations
 
     Returns:
-        pandas dataframe containing the full set of features
+        Dictionary of data schema types and their feature dataframes
     """
-    logger.info("Featurizing CDR data")
-    cdr_features_df = featurize_cdr_data(
-        preprocessed_data[CallDataRecordData],
-        preprocessed_data[AntennaData] if AntennaData in preprocessed_data else None,
-        max_wait_for_convo_in_seconds,
-        pareto_threshold,
-    )
+    features = {}
+    if CallDataRecordData in preprocessed_data:
+        logger.info("Featurizing CDR data")
+        cdr_features_df = featurize_cdr_data(
+            preprocessed_data[CallDataRecordData],
+            (
+                preprocessed_data[AntennaData]
+                if AntennaData in preprocessed_data
+                else None
+            ),
+            max_wait_for_convo_in_seconds,
+            pareto_threshold,
+        )
+        features[CallDataRecordData] = cdr_features_df
 
-    logger.info("Featurizing mobile data usage data")
-    mobile_data_features_df = featurize_mobile_data_usage_data(
-        preprocessed_data[MobileDataUsageData]
-    )
+    if MobileDataUsageData in preprocessed_data:
+        logger.info("Featurizing mobile data usage data")
+        mobile_data_features_df = featurize_mobile_data_usage_data(
+            preprocessed_data[MobileDataUsageData]
+        )
+        features[MobileDataUsageData] = mobile_data_features_df
 
-    logger.info("Featurizing mobile money data")
-    mobile_money_features_df = featurize_mobile_money_data(
-        preprocessed_data[MobileMoneyTransactionData]
-    )
+    if MobileMoneyTransactionData in preprocessed_data:
+        logger.info("Featurizing mobile money data")
+        mobile_money_features_df = featurize_mobile_money_data(
+            preprocessed_data[MobileMoneyTransactionData]
+        )
+        features[MobileMoneyTransactionData] = mobile_money_features_df
 
-    logger.info("Featurizing recharge data")
-    recharge_features_df = featurize_recharge_data(preprocessed_data[RechargeData])
+    if RechargeData in preprocessed_data:
+        logger.info("Featurizing recharge data")
+        recharge_features_df = featurize_recharge_data(preprocessed_data[RechargeData])
+        features[RechargeData] = recharge_features_df
 
-    # Merge all features into a single dataframe on caller_id
-    logger.info("Merging all features into a single dataframe")
-    feature_dfs = [
-        cdr_features_df,
-        mobile_data_features_df,
-        mobile_money_features_df,
-        recharge_features_df,
-    ]
-    merged_df = reduce(
-        lambda df1, df2: pd.merge(df1, df2, on="caller_id", how="inner"),
-        feature_dfs,
-    )
-
-    return merged_df
+    return features
