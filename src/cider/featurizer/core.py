@@ -2366,6 +2366,7 @@ def preprocess_data(
 
     preprocessed_data: dict[type[BaseModel], PandasDataFrame] = {}
     spammers_list: list[str] = []
+    outlier_days: list = []
 
     for schema in [
         CallDataRecordData,
