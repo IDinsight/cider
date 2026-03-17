@@ -28,6 +28,7 @@ repos:
     rev: v1.15.0
     hooks:
       - id: mypy
+        language_version: python3.10
   - repo: https://github.com/mxab/pre-commit-trivy.git
     rev: v0.17.0
     hooks:
